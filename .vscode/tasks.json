@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "cppbuild",
+      "label": "C/C++: cl.exe build active file",
+      "command": "cl.exe",
+      "args": [
+        "/Zi",
+        "/EHsc",
+        "/FS",
+        "/nologo",
+        "/Fo${workspaceFolder}\\build\\",
+        "/Fd${workspaceFolder}\\build\\",
+        "/Fe${workspaceFolder}\\build\\${fileBasenameNoExtension}.exe",
+        "${workspaceFolder}/src/*.cpp"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$msCompile"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}
