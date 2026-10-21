@@ -32,3 +32,7 @@ in order to make the Release build self-contained, i.e. including all necessary 
 ## Build target
 
 From the VS Code options, we can select the build target from `>CMake: select variant` and then choose between `Release` or `Debug`.
+
+## OSM road data
+
+At startup, the application requests highway ways for the current test bounding box from the public Overpass API. Valid JSON responses are cached under Qt's writable `AppDataLocation` in a `roads_data` subdirectory, with a separate file for each query. Remove the relevant cache file to fetch that query again.

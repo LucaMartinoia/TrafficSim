@@ -1,31 +1,51 @@
-#include <QGuiApplication>
-#include <QQmlApplicationEngine>
 #include <QDebug>
+#include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QQmlApplicationEngine>
+#include <QQmlContext>
+#include <QQuickStyle>
 
-int main(int argc, char *argv[])
+#include "overpassclient.h"
+
+int main(int argc, char* argv[])
 {
-    QGuiApplication app(argc, argv);
+  QQuickStyle::setStyle("Basic");
+  QGuiApplication app(argc, argv);
+  qInfo() << "Starting the application";
+  QCoreApplication::setOrganizationName(QStringLiteral("TrafficSim"));
+  QCoreApplication::setApplicationName(QStringLiteral("TrafficSim"));
 
-    QQmlApplicationEngine engine;
+  OverpassClient overpassClient;
+  QObject::connect(
+      &overpassClient, &OverpassClient::requestSucceeded,
+      [](const QString&, const QJsonDocument& response)
+      {
+        const QJsonArray elements = response.object().value(QStringLiteral("elements")).toArray();
+        int ways = 0;
+        int geometryPoints = 0;
+        for (const QJsonValue& elementValue : elements)
+        {
+          const QJsonObject element = elementValue.toObject();
+          if (element.value(QStringLiteral("type")).toString() != QStringLiteral("way"))
+            continue;
 
-    QObject::connect(&engine, &QQmlApplicationEngine::warnings,
-                     [](const QList<QQmlError> &warnings)
-                     {
-                         for (const QQmlError &warning : warnings)
-                             qWarning() << "QML warning:" << warning.toString();
-                     });
+          ++ways;
+          geometryPoints += element.value(QStringLiteral("geometry")).toArray().size();
+        }
 
-    QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
-                     []()
-                     { qWarning() << "Object creation failed!"; });
+        qInfo() << "Overpass request succeeded:" << elements.size() << "elements," << ways
+                << "ways," << geometryPoints << "geometry points.";
+      });
+  QObject::connect(&overpassClient, &OverpassClient::requestFailed,
+                   [](const QString&, const QString& error)
+                   { qWarning().noquote() << "Overpass request failed:" << error; });
+  overpassClient.requestDefaultRoads();
 
-    engine.loadFromModule("TrafficSim", "Main");
+  QQmlApplicationEngine engine;
+  engine.loadFromModule("TrafficSim", "Main");
+  // Backend backend;
+  // engine.rootContext()->setContextProperty("backend", &backend);
 
-    if (engine.rootObjects().isEmpty())
-    {
-        qWarning() << "No root objects created — exiting.";
-        return -1;
-    }
-
-    return app.exec();
+  return app.exec();
 }

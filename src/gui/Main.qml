@@ -1,24 +1,66 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 
 ApplicationWindow {
-    width: 800
-    height: 600
+    id: mainWindow
+
+    width: 1000
+    height: 700
     visible: true
+    visibility: Window.Maximized
+
     title: "Traffic Simulator"
 
-    Button {
-        text: "Exit"
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 0
 
-        anchors.centerIn: parent
+        MapCanvas {
+            id: mapMain
+        }
 
-        width: 200
-        height: 100
+        ToolBar {
+            id: toolBar
 
-        font.pixelSize: 32
+            Layout.fillWidth: true
+            Layout.preferredHeight: 65
 
-        onClicked: {
-            Qt.quit()
+            background: Rectangle {
+                color: '#700ea1ca'
+            }
+
+            RowLayout {
+                anchors.fill: parent
+
+                Button {
+                    id: lockButton
+
+                    checkable: true
+                    text: checked ? "Unlock view" : "Lock view"
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: 100
+                    Layout.preferredHeight: 40
+
+                    background: Rectangle {
+                        color: lockButton.checked ? "red" : "gray"
+                        radius: 5
+                    }
+
+                    contentItem: Text {
+                        text: lockButton.text
+                        color: "white"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    onToggled: {
+                        mapMain.interactionEnabled = !checked;
+                        mapMain.borderWidth = checked ? 2 : 0;
+                        //backend.foo(checked)
+                    }
+                }
+            }
         }
     }
 }
