@@ -5,6 +5,8 @@ import QtQuick.Layouts
 ApplicationWindow {
     id: mainWindow
 
+    required property var backend
+
     width: 1000
     height: 700
     visible: true
@@ -18,6 +20,8 @@ ApplicationWindow {
 
         MapCanvas {
             id: mapMain
+
+            backend: mainWindow.backend
         }
 
         ToolBar {
@@ -38,6 +42,7 @@ ApplicationWindow {
 
                     checkable: true
                     text: checked ? "Unlock view" : "Lock view"
+                    enabled: mapMain.mapReady
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredWidth: 100
                     Layout.preferredHeight: 40
@@ -57,7 +62,8 @@ ApplicationWindow {
                     onToggled: {
                         mapMain.interactionEnabled = !checked;
                         mapMain.borderWidth = checked ? 2 : 0;
-                        //backend.foo(checked)
+                        if (checked)
+                            mapMain.requestBBoxData();
                     }
                 }
             }

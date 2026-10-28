@@ -1,5 +1,3 @@
-#include "overpassclient.h"
-
 #include <QCryptographicHash>
 #include <QDebug>
 #include <QDir>
@@ -14,19 +12,26 @@
 #include <QStandardPaths>
 #include <QUrl>
 
+#include "OSMclient.h"
+#include "geo_utils.h"
+
 // Define the shared endpoint once outside the class declaration
-const QUrl OverpassClient::ENDPOINT(QStringLiteral("https://overpass-api.de/api/interpreter"));
+// TODO: define multiple Endpoints and iterate when one fails (timeout or Error code 502)
+const QUrl OSMClient::ENDPOINT(QStringLiteral("https://overpass-api.de/api/interpreter"));
+const QString OSMClient::WAY_TYPES(
+    "way['highway'~'^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|motorway_"
+    "link|trunk_link|primary_link|secondary_link|tertiary_link)$']");
 
 // Member-initializer list initializes the base and members before the constructor body
-OverpassClient::OverpassClient(QObject* parent)
+OSMClient::OSMClient(QObject* parent)
     : QObject(parent), m_networkAccessManager(new QNetworkAccessManager(this))
 {
   // &Class::method is a type-safe pointer-to-member used by Qt connect()
   connect(m_networkAccessManager, &QNetworkAccessManager::finished, this,
-          &OverpassClient::handleApiResponse);
+          &OSMClient::handleResponse);
 }
 
-bool OverpassClient::isOverpassResponse(const QJsonDocument& document)
+bool OSMClient::isValidResponse(const QJsonDocument& document)
 {
   // Check the expected response structure as well as valid JSON syntax
   return document.isObject() && document.object().value(QStringLiteral("elements")).isArray() &&
@@ -34,20 +39,20 @@ bool OverpassClient::isOverpassResponse(const QJsonDocument& document)
 }
 
 // ClassName::methodName associates this definition with its header declaration
-void OverpassClient::requestDefaultRoads()
+void OSMClient::requestDefault()
 {
   // Adjacent string literals join together; QStringLiteral creates a QString
-  requestQuery(QStringLiteral("[out:json][timeout:15];\n"
-                              "way['highway'~'^(motorway|primary|secondary|tertiary|residential)$']"
-                              "(44.395,8.955,44.400,8.960);\n"
-                              "out geom;"));
+  // TODO: make timeout and highway types member attributes
+  requestQuery(QStringLiteral("[out:json][timeout:25];\n"
+                              "%1(44.395,8.955,44.400,8.961);\n"
+                              "out geom;")
+                   .arg(WAY_TYPES));
 }
 
-void OverpassClient::requestRoadsInBoundingBox(double south, double west, double north, double east)
+void OSMClient::requestRoadsBBox(double south, double west, double north, double east)
 {
   // Validate coordinates before building a remote query
-  if (south < -90.0 || north > 90.0 || west < -180.0 || east > 180.0 || south >= north ||
-      west >= east)
+  if (!GeoUtils::isValidBBox(south, west, north, east))
   {
     // emit notifies connected objects; return prevents sending invalid input
     emit requestFailed(QString(), QStringLiteral("Invalid bounding box."));
@@ -56,16 +61,15 @@ void OverpassClient::requestRoadsInBoundingBox(double south, double west, double
 
   // arg() replaces placeholders; fixed precision keeps cache keys consistent
   const QString query =
-      QStringLiteral(
-          "[out:json][timeout:15];\n"
-          "way['highway'~'^(motorway|primary|secondary|tertiary|residential)$'](%1,%2,%3,%4);\n"
-          "out geom;")
+      QStringLiteral("[out:json][timeout:15];\n"
+                     "%5(%1,%2,%3,%4);\n"
+                     "out geom;")
           .arg(QString::number(south, 'f', 6), QString::number(west, 'f', 6),
-               QString::number(north, 'f', 6), QString::number(east, 'f', 6));
+               QString::number(north, 'f', 6), QString::number(east, 'f', 6), WAY_TYPES);
   requestQuery(query);
 }
 
-QString OverpassClient::cacheFilePath(const QString& query) const
+QString OSMClient::cacheFilePath(const QString& query) const
 {
   // Use writable app data and hash the query for a unique cache filename
   const QString appDataLocation = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -79,7 +83,7 @@ QString OverpassClient::cacheFilePath(const QString& query) const
          QStringLiteral(".json");
 }
 
-void OverpassClient::clearCache()
+void OSMClient::clearCache()
 {
   // Remove the local road-response cache directory
   const QString appDataLocation = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -92,7 +96,7 @@ void OverpassClient::clearCache()
     cacheDirectory.removeRecursively();
 }
 
-void OverpassClient::requestQuery(const QString& query)
+void OSMClient::requestQuery(const QString& query)
 {
   // Validate input and check the cache before contacting Overpass
   if (query.trimmed().isEmpty())
@@ -108,11 +112,12 @@ void OverpassClient::requestQuery(const QString& query)
     return;
   }
 
-  bool validCache = loadCachedResponse(query);
+  bool validCache = loadCache(query);
   if (validCache)
     return;
 
   // Configure an asynchronous HTTPS POST so the UI stays responsive
+  qInfo() << "Sending HTTPS requesto to Overpass API";
   QNetworkRequest request(ENDPOINT);
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     QStringLiteral("application/x-www-form-urlencoded"));
@@ -129,7 +134,7 @@ void OverpassClient::requestQuery(const QString& query)
   reply->setProperty("query", query);
 }
 
-bool OverpassClient::loadCachedResponse(const QString& query)
+bool OSMClient::loadCache(const QString& query)
 {
   // Parse and validate cached JSON before treating the file as a cache hit
   const QString cachePath = cacheFilePath(query);
@@ -148,7 +153,7 @@ bool OverpassClient::loadCachedResponse(const QString& query)
   QJsonParseError parseError;
   const QJsonDocument cachedResponse = QJsonDocument::fromJson(cacheFile.readAll(), &parseError);
 
-  if (parseError.error != QJsonParseError::NoError || !isOverpassResponse(cachedResponse))
+  if (parseError.error != QJsonParseError::NoError || !isValidResponse(cachedResponse))
   {
     const QString error =
         parseError.error != QJsonParseError::NoError
@@ -164,7 +169,7 @@ bool OverpassClient::loadCachedResponse(const QString& query)
   return true;
 }
 
-void OverpassClient::handleApiResponse(QNetworkReply* reply)
+void OSMClient::handleResponse(QNetworkReply* reply)
 {
   // Retrieve this reply's query, including when requests overlap
   const QString query = reply->property("query").toString();
@@ -190,7 +195,7 @@ void OverpassClient::handleApiResponse(QNetworkReply* reply)
   const QJsonDocument response = QJsonDocument::fromJson(responseBody, &parseError);
 
   // Cache and emit only a valid Overpass response
-  if (parseError.error != QJsonParseError::NoError || !isOverpassResponse(response))
+  if (parseError.error != QJsonParseError::NoError || !isValidResponse(response))
   {
     const QString detail =
         parseError.error != QJsonParseError::NoError
@@ -202,13 +207,13 @@ void OverpassClient::handleApiResponse(QNetworkReply* reply)
     return;
   }
 
-  cacheResponse(query, responseBody);
+  saveCache(query, responseBody);
 
   reply->deleteLater();
   emit requestSucceeded(query, response);
 }
 
-void OverpassClient::cacheResponse(const QString& query, const QByteArray& responseBody)
+void OSMClient::saveCache(const QString& query, const QByteArray& responseBody)
 {
   // QSaveFile replaces the cache on commit, avoiding partial files
   const QString cachePath = cacheFilePath(query);
