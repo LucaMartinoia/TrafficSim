@@ -28,13 +28,23 @@ add_test(
 )
 
 add_test(
-    NAME traffic_uses_meters_per_second
-    COMMAND TrafficSimTests trafficUsesMetersPerSecond
+    NAME bounding_box_validates_coordinates
+    COMMAND TrafficSimTests boundingBoxRequiresValidOrderedCoordinates
 )
 
 add_test(
-    NAME simulation_start_and_step
-    COMMAND TrafficSimTests simulationStartsAndIntegratesTime
+    NAME map_view_validates_coordinate
+    COMMAND TrafficSimTests mapViewRequiresValidCoordinateAndZoom
+)
+
+add_test(
+    NAME traffic_skips_car_without_route
+    COMMAND TrafficSimTests trafficSkipsCarWhenRouteIsUnavailable
+)
+
+add_test(
+    NAME simulation_defers_until_traffic_update
+    COMMAND TrafficSimTests simulationDefersUntilTrafficUpdateIsImplemented
 )
 
 add_test(

@@ -9,11 +9,11 @@ int main(int argc, char* argv[])
 {
   // Set QML-item style
   QQuickStyle::setStyle("Basic");
-  // The
+
   qInfo() << "--------------------\nStarting the application\n--------------------\n";
   QGuiApplication app(argc, argv);
   QCoreApplication::setOrganizationName(QStringLiteral("TrafficSim"));
-  QCoreApplication::setApplicationName(QStringLiteral("TrafficSim"));
+  QCoreApplication::setApplicationName(QStringLiteral("LucaMartinoia"));
 
   // Register the backend to the QML engine
   QQmlApplicationEngine engine;

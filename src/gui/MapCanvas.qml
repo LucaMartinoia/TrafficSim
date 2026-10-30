@@ -10,16 +10,27 @@ Item {
     property bool interactionEnabled: true
     property int borderWidth: 0
     readonly property bool mapReady: mapView.map.mapReady
+    readonly property real centerLatitude: mapView.map.center.latitude
+    readonly property real centerLongitude: mapView.map.center.longitude
+    readonly property real currentZoomLevel: mapView.map.zoomLevel
 
     Layout.fillWidth: true
     Layout.fillHeight: true
 
     function requestBBoxData() {
+        if (!root.backend)
+            return;
+
         // Convert the visible map corners into a geographic bounding box.
         const topLeft = mapView.map.toCoordinate(Qt.point(0, 0), false);
         const bottomRight = mapView.map.toCoordinate(Qt.point(mapView.map.width, mapView.map.height), false);
 
         // Pad the visible bounds by five percent of each geographic span.
+        if (!topLeft.isValid || !bottomRight.isValid) {
+            console.warn("Cannot query roads for an invalid map view");
+            return;
+        }
+
         const latitudePadding = (topLeft.latitude - bottomRight.latitude) * 0.05;
         const longitudePadding = (bottomRight.longitude - topLeft.longitude) * 0.05;
         const south = Math.max(-90, bottomRight.latitude - latitudePadding);
@@ -27,9 +38,27 @@ Item {
         const north = Math.min(90, topLeft.latitude + latitudePadding);
         const east = Math.min(180, bottomRight.longitude + longitudePadding);
 
-        // Let the backend forward the padded bounding box to the OSM client.
-        root.backend.requestBBoxData(south, west, north, east);
+        // Represent the padded bounds as the top-left and bottom-right coordinates
+        const queryTopLeft = QtPositioning.coordinate(north, west);
+        const queryBottomRight = QtPositioning.coordinate(south, east);
+        root.backend.requestBBoxData(queryTopLeft, queryBottomRight);
     }
+
+    function gotoDefaultMapView() {
+        if (!root.backend || !mapView || !mapView.map)
+            return;
+
+        const defaults = root.backend.getDefaultMapView();
+        if (!defaults)
+            return;
+
+        // Apply saved defaults only during initialization, not when settings change
+        mapView.map.center = defaults.location;
+        mapView.map.zoomLevel = defaults.zoom;
+    }
+
+    Component.onCompleted: root.gotoDefaultMapView()
+    onBackendChanged: root.gotoDefaultMapView()
 
     Rectangle {
         id: border
@@ -75,7 +104,7 @@ Item {
         }
     }
 
-    // Forward completed OSM geometry to the map overlay.
+    // Forward completed OSM geometry to the map overlay
     Connections {
         target: root.backend
 

@@ -1,16 +1,16 @@
 {
   "configurations": [
     {
-      "name": "C/C++: cl.exe build and debug active file",
+      "name": "CMake: Launch selected target",
       "type": "cppvsdbg",
       "request": "launch",
-      "program": "${workspaceFolder}\\build\\${fileBasenameNoExtension}.exe",
+      "program": "${command:cmake.launchTargetPath}",
       "args": [],
       "stopAtEntry": false,
-      "cwd": "${workspaceFolder}",
+      "cwd": "${command:cmake.launchTargetDirectory}",
       "environment": [],
       "console": "integratedTerminal",
-      "preLaunchTask": "C/C++: cl.exe build active file"
+      "preLaunchTask": "CMake: build selected launch target"
     }
   ],
   "version": "2.0.0"

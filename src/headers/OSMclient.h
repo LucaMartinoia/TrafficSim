@@ -1,5 +1,9 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
+
+#include <QGeoCoordinate>
 #include <QJsonDocument>
 #include <QObject>
 #include <QString>
@@ -20,7 +24,8 @@ public:
 
   // Convenience methods for the fixed query and a bounding-box query
   void requestDefault();
-  void requestRoadsBBox(double south, double west, double north, double east);
+  void requestRoadsBBox(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight);
+  bool clearCache();
 
 signals:
   // Qt generates signal implementations; callers connect to receive results
@@ -29,16 +34,15 @@ signals:
 
 private:
   // Private helpers keep response handling and caching inside the client
-  static const QUrl ENDPOINT;
+  static const std::array<QUrl, 3> ENDPOINTS;
   static const QString WAY_TYPES;
 
   static bool isValidResponse(const QJsonDocument& document);
   void requestQuery(const QString& query);
-  void clearCache();
+  void sendQueryToEndpoint(const QString& query, std::size_t endpointIndex);
   bool loadCache(const QString& query);
-  void handleResponse(QNetworkReply* reply);
   void saveCache(const QString& query, const QByteArray& responseBody);
-
+  void handleResponse(QNetworkReply* reply);
   QString cacheFilePath(const QString& query) const;
 
   // QObject parent ownership deletes the manager with this client

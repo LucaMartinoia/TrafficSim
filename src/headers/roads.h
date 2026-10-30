@@ -14,7 +14,8 @@ struct RoadEdge
   std::size_t destination;
   double length;
   double maxVelocity;
-  double travelTime;
+  double freeFlowTime;
+  double adaptiveTime;
 };
 
 struct RoadNode
@@ -25,6 +26,17 @@ struct RoadNode
   RoadNode(const QGeoCoordinate& coordinate) : coordinate(coordinate) {}
 };
 
+// Helper structures to update traffic data
+struct RoadEdgeId
+{
+  std::size_t sourceNode;
+  std::size_t edgeIndex;
+};
+
+// "using" creates Aliases for the vectors
+using RoadRoute = std::vector<RoadEdgeId>;
+using EdgeOccupancy = std::vector<std::vector<std::size_t>>;
+
 // Enum to list the weight to use in computing paths
 enum class RoutingMetric
 {
@@ -33,18 +45,38 @@ enum class RoutingMetric
   AdaptiveTime
 };
 
+// Enum to list the possible algorithms to use in computing paths
+enum class Algorithm
+{
+  Dijkstra,
+  Astar
+};
+
 class RoadNetwork
 {
 public:
   // Build the adjacency list from OSM data
   bool buildRoadNetwork(const QJsonDocument& response, QString& error);
+  // Find a directed route as edge references using the selected edge cost
+  bool Dijkstra(std::size_t startNode, std::size_t destinationNode, RoadRoute& route);
+  bool Astar(std::size_t startNode, std::size_t destinationNode, RoadRoute& route);
+  bool findRoute(std::size_t startNode, std::size_t destinationNode, RoadRoute& route) const;
+  // Refresh only the adaptive travel-time weights from the current occupancy snapshot
+  void resetOccupancy();
+  void updateTravelTimes();
   // Convert OSM data into paths suitable for display
   static QVariantList roadsPolyline(const QJsonDocument& response);
 
   // Getter methods
   const std::vector<RoadNode>& nodes() const;
 
+  // Setter methods
+  void setRoutingMetric(RoutingMetric metric);
+  void incrementOccupancy(const RoadEdgeId id);
+
 private:
   std::vector<RoadNode> m_nodes;
-  std::vector<RoadNode> m_reduced_nodes;
+  Algorithm m_algorithm = Algorithm::Dijkstra;
+  RoutingMetric m_routingMetric = RoutingMetric::Distance;
+  EdgeOccupancy m_occupancy;
 };

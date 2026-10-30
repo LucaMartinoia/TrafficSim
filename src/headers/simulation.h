@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include <QJsonDocument>
 #include <QString>
 
@@ -10,9 +12,10 @@ class Simulation
 {
 public:
   // Load and prepare a road network without starting a blocking simulation loop
-  bool start(const QJsonDocument& response, QString& error);
-  // Advance traffic once by the configured time step and integrate simulation time
-  bool step(QString& error);
+  bool init(const QJsonDocument& response, QString& error);
+  // Update traffic and maintain the requested active-car population for one timestep
+  bool update(QString& error);
+  // Reset the loaded network and simulation state
   void clear();
 
   // Getter methods

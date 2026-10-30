@@ -8,36 +8,32 @@
 
 #include "roads.h"
 
-struct TrafficCar
+struct Car
 {
-  // Store segment progress in meters and both speeds in meters per second.
-  std::vector<std::size_t> routeNodeIndices;
-  std::size_t currentRouteSegment = 0;
-  double distanceAlongSegment = 0.0;
-  QGeoCoordinate startPosition;
-  QGeoCoordinate endPosition;
-  QGeoCoordinate currentPosition;
+  RoadRoute route;
+  std::size_t routeSegment = 0;
+  double distance = 0.0;
+  QGeoCoordinate position;
   double velocity = 0.0;
-  double desiredVelocity = 0.0;
   bool arrived = false;
+
+  // Helper to retrive edge fata from the adjacency list
+  const RoadEdge& getEdge(const RoadNetwork& network) const;
 };
 
 class Traffic
 {
 public:
-  // Add a car along an explicit directed route; route finding is intentionally separate.
-  // TODO: do we need to pass desiredVelocity and routeNodeIndices??
-  // desiredVelocity is in meters per second.
-  bool addCar(const RoadNetwork& network, const std::vector<std::size_t>& routeNodeIndices,
-              double desiredVelocity, QString& error);
+  // Pick random endpoints and add a car only when route planning succeeds
+  bool addCar(const RoadNetwork& network, QString& error);
+  void removeCars();
 
-  // Advance all cars by simulation time in seconds, respecting each road's speed limit.
-  // TODO: make dt a class member of a Simulation class or something
-  bool advance(const RoadNetwork& network, double deltaTime, QString& error);
+  // Advance all cars against the same occupancy snapshot for this timestep
+  void update(RoadNetwork& network, double dt);
 
-  void clear();
-  const std::vector<TrafficCar>& cars() const;
+  std::size_t activeCarCount() const;
+  const std::vector<Car>& cars() const;
 
 private:
-  std::vector<TrafficCar> m_cars;
+  std::vector<Car> m_cars;
 };

@@ -39,7 +39,7 @@ qt_standard_project_setup()
 qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)
 
-qt_add_executable(TrafficSim WIN32
+qt_add_executable(TrafficSim #WIN32 # Necessary to make the app start without console
     ${CPP_FILES}
     ${HEADER_FILES}
     resources/TrafficSim.rc

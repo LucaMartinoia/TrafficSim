@@ -3,10 +3,12 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QGeoCoordinate>
 #include <QSignalSpy>
 #include <QtTest>
 
 #include "OSMclient.h"
+#include "geo_utils.h"
 #include "roads.h"
 #include "simulation.h"
 #include "traffic.h"
@@ -56,8 +58,7 @@ private slots:
     // Parse the fixture and verify that shared coordinates become shared graph nodes.
     RoadNetwork network;
     QString error;
-    QVERIFY2(network.buildRoadNetwork(QJsonDocument::fromJson(json), error),
-             qPrintable(error));
+    QVERIFY2(network.buildRoadNetwork(QJsonDocument::fromJson(json), error), qPrintable(error));
     QCOMPARE(network.nodes().size(), std::size_t(5));
 
     // Verify full-graph edge direction, speed metadata, and computed travel time.
@@ -65,19 +66,61 @@ private slots:
     QVERIFY(nodes[0].edges.size() == 1);
     QCOMPARE(nodes[0].edges[0].destination, std::size_t(1));
     QCOMPARE(nodes[0].edges[0].maxVelocity, 10.0);
-    QVERIFY(nodes[0].edges[0].travelTime > 0.0);
-    QVERIFY(std::abs(nodes[0].edges[0].travelTime - nodes[0].edges[0].length / 10.0) < 0.001);
+    QVERIFY(nodes[0].edges[0].freeFlowTime > 0.0);
+    QVERIFY(std::abs(nodes[0].edges[0].freeFlowTime - nodes[0].edges[0].length / 10.0) < 0.001);
+    QCOMPARE(nodes[0].edges[0].adaptiveTime, nodes[0].edges[0].freeFlowTime);
     QVERIFY(nodes[1].edges.size() == 2);
     QCOMPARE(nodes[1].edges[1].destination, std::size_t(2));
     QCOMPARE(nodes[2].edges[2].destination, std::size_t(4));
     QVERIFY(std::abs(nodes[2].edges[2].maxVelocity - 30.0 * 0.44704) < 0.000001);
     QVERIFY(nodes[4].edges.empty());
 
-    // A successful replacement parse replaces the current graph.
-    const QByteArray emptyNetworkJson = R"json({"elements": []})json";
-    QVERIFY2(network.buildRoadNetwork(QJsonDocument::fromJson(emptyNetworkJson), error),
-             qPrintable(error));
-    QVERIFY(network.nodes().empty());
+    // Reject distinct nodes with only invalid self-edges and preserve the current graph.
+    const QByteArray disconnectedNetworkJson = R"json(
+      {
+        "elements": [
+          {
+            "type": "way",
+            "geometry": [
+              {"lat": 44.0, "lon": 8.0},
+              {"lat": 44.0, "lon": 8.0}
+            ]
+          },
+          {
+            "type": "way",
+            "geometry": [
+              {"lat": 44.001, "lon": 8.0},
+              {"lat": 44.001, "lon": 8.0}
+            ]
+          }
+        ]
+      }
+    )json";
+    QVERIFY(!network.buildRoadNetwork(QJsonDocument::fromJson(disconnectedNetworkJson), error));
+    QVERIFY(!error.isEmpty());
+    QCOMPARE(network.nodes().size(), std::size_t(5));
+  }
+
+  void boundingBoxRequiresValidOrderedCoordinates()
+  {
+    // Accept top-left and bottom-right coordinates in geographic order
+    const QGeoCoordinate topLeft(45.0, 8.0);
+    const QGeoCoordinate bottomRight(44.0, 9.0);
+    QVERIFY(GeoUtils::isValidBBox(topLeft, bottomRight));
+
+    // Reject invalid coordinates and corners with reversed ordering
+    QVERIFY(!GeoUtils::isValidBBox(QGeoCoordinate(91.0, 8.0), bottomRight));
+    QVERIFY(!GeoUtils::isValidBBox(bottomRight, topLeft));
+  }
+
+  void mapViewRequiresValidCoordinateAndZoom()
+  {
+    // Accept valid geographic coordinates with an in-range zoom
+    QVERIFY(GeoUtils::isValidMapView(QGeoCoordinate(44.0, 8.0), 18));
+
+    // Reject invalid geographic coordinates and zoom levels outside the supported range
+    QVERIFY(!GeoUtils::isValidMapView(QGeoCoordinate(), 18));
+    QVERIFY(!GeoUtils::isValidMapView(QGeoCoordinate(44.0, 8.0), 23));
   }
 
   void defaultOverpassQueryBuildsRoadNetworks()
@@ -85,19 +128,11 @@ private slots:
     // Observe both outcomes from the real default query, including its cache path.
     OSMClient client;
     QSignalSpy succeededSpy(&client, &OSMClient::requestSucceeded);
-    QSignalSpy failedSpy(&client, &OSMClient::requestFailed);
     QVERIFY(succeededSpy.isValid());
-    QVERIFY(failedSpy.isValid());
 
-    // Start the live request and allow time for the network timeout/retry handling.
+    // Start the live request and wait for a valid result from any public instance.
     client.requestDefault();
-    QTRY_VERIFY_WITH_TIMEOUT(succeededSpy.count() > 0 || failedSpy.count() > 0, 65000);
-
-    if (failedSpy.count() > 0)
-    {
-      const QString error = failedSpy.takeFirst().at(1).toString();
-      QFAIL(qPrintable(QStringLiteral("Default Overpass query failed: %1").arg(error)));
-    }
+    QTRY_VERIFY_WITH_TIMEOUT(succeededSpy.count() > 0, 65000);
 
     // Validate that the downloaded JSON produces a non-empty graph with road edges.
     const QJsonDocument response = succeededSpy.takeFirst().at(1).value<QJsonDocument>();
@@ -112,7 +147,7 @@ private slots:
     QVERIFY(edgeCount > 0);
   }
 
-  void simulationStartsAndIntegratesTime()
+  void simulationDefersUntilTrafficUpdateIsImplemented()
   {
     // Start with one directed road and verify the simulation time-step lifecycle.
     const QByteArray json = R"json(
@@ -132,20 +167,26 @@ private slots:
 
     Simulation simulation;
     QString error;
-    QVERIFY(!simulation.step(error));
+    QVERIFY(!simulation.update(error));
     QVERIFY(!error.isEmpty());
     QCOMPARE(simulation.time(), 0.0);
 
-    QVERIFY2(simulation.start(QJsonDocument::fromJson(json), error), qPrintable(error));
+    QVERIFY2(simulation.init(QJsonDocument::fromJson(json), error), qPrintable(error));
     QCOMPARE(simulation.time(), 0.0);
     QVERIFY(simulation.timeStep() > 0.0);
 
-    // A single explicit step advances integrated time without starting a loop.
-    QVERIFY2(simulation.step(error), qPrintable(error));
-    QCOMPARE(simulation.time(), simulation.timeStep());
+    // The simulation reports that traffic movement is not implemented yet.
+    QVERIFY(!simulation.update(error));
+    QVERIFY(!error.isEmpty());
+    QCOMPARE(simulation.time(), 0.0);
+
+    simulation.clear();
+    QVERIFY(!simulation.update(error));
+    QVERIFY(!error.isEmpty());
+    QCOMPARE(simulation.time(), 0.0);
   }
 
-  void trafficUsesMetersPerSecond()
+  void trafficSkipsCarWhenRouteIsUnavailable()
   {
     // Build one segment with a 36 km/h limit, equivalent to 10 meters per second.
     const QByteArray json = R"json(
@@ -163,19 +204,15 @@ private slots:
       }
     )json";
 
-    // Parse the road and create a car whose requested speed exceeds the road limit.
+    // Parse the road and try to create a car while route finding is still a stub.
     RoadNetwork network;
     QString error;
-    QVERIFY2(network.buildRoadNetwork(QJsonDocument::fromJson(json), error),
-             qPrintable(error));
+    QVERIFY2(network.buildRoadNetwork(QJsonDocument::fromJson(json), error), qPrintable(error));
     Traffic traffic;
-    QVERIFY2(traffic.addCar(network, {0, 1}, 20.0, error), qPrintable(error));
-    QCOMPARE(traffic.cars().front().velocity, 10.0);
-
-    // One second at 10 m/s advances the car by 10 meters along the segment.
-    QVERIFY2(traffic.advance(network, 1.0, error), qPrintable(error));
-    QCOMPARE(traffic.cars().front().distanceAlongSegment, 10.0);
-    QVERIFY(!traffic.cars().front().arrived);
+    error = QStringLiteral("previous error");
+    QVERIFY(!traffic.addCar(network, error));
+    QVERIFY(error.isEmpty());
+    QVERIFY(traffic.cars().empty());
   }
 };
 

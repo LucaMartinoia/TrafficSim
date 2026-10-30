@@ -30,11 +30,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.preferredHeight: 65
 
-            background: Rectangle {
-                color: '#700ea1ca'
-            }
-
-            RowLayout {
+            Item {
                 anchors.fill: parent
 
                 Button {
@@ -43,28 +39,26 @@ ApplicationWindow {
                     checkable: true
                     text: checked ? "Unlock view" : "Lock view"
                     enabled: mapMain.mapReady
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 100
-                    Layout.preferredHeight: 40
-
-                    background: Rectangle {
-                        color: lockButton.checked ? "red" : "gray"
-                        radius: 5
-                    }
-
-                    contentItem: Text {
-                        text: lockButton.text
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
+                    anchors.centerIn: parent
+                    width: 100
+                    height: 40
 
                     onToggled: {
                         mapMain.interactionEnabled = !checked;
                         mapMain.borderWidth = checked ? 2 : 0;
                         if (checked)
                             mapMain.requestBBoxData();
+                        else
+                            mainWindow.backend.clearSimulation();
                     }
+                }
+
+                Settings {
+                    backend: mainWindow.backend
+                    mapCanvas: mapMain
+                    anchors.right: parent.right
+                    anchors.rightMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
                 }
             }
         }

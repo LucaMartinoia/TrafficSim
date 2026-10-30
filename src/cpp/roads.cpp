@@ -1,6 +1,6 @@
+#include <algorithm>
 #include <cmath>
 #include <map>
-#include <set>
 
 #include <QDebug>
 #include <QJsonArray>
@@ -33,9 +33,9 @@ struct comparator
   }
 };
 
+// Parse the OSM tags to read the velocity
 double maxVelocity(const QJsonObject& tags)
 {
-  // Parse the first usable OSM maxspeed value, treating unitless values as km/h
   // TODO: consider improving the tag parser
   QString speedTag = tags.value(QStringLiteral("maxspeed")).toString().trimmed().toLower();
   speedTag = speedTag.section(QLatin1Char(';'), 0, 0).trimmed();
@@ -59,27 +59,26 @@ double maxVelocity(const QJsonObject& tags)
 // Returns time in seconds
 double travelTime(double length, double velocity) { return length / velocity; }
 
-bool addEdgeToNeighbor(RoadNode& current, std::size_t currentNode,
-                       const QGeoCoordinate& currentCoordinate, const QJsonArray& geometry,
-                       int neighborPointIndex,
-                       const std::map<QGeoCoordinate, std::size_t, comparator>& nodeIndices,
-                       double velocity)
+// Add edges to the adjacency map
+bool addEdge(RoadNode& current, const QJsonArray& geometry, int neighborPointIndex,
+             const std::map<QGeoCoordinate, std::size_t, comparator>& nodeIndices, double velocity)
 {
   // Resolve the neighbor and skip geometry points that map to the current node.
   const QJsonObject neighborPoint = geometry.at(neighborPointIndex).toObject();
   const QGeoCoordinate neighborCoordinate(neighborPoint.value(QStringLiteral("lat")).toDouble(),
                                           neighborPoint.value(QStringLiteral("lon")).toDouble());
   const std::size_t neighborNode = nodeIndices.find(neighborCoordinate)->second;
-  if (neighborNode == currentNode)
+  if (neighborCoordinate == current.coordinate)
     return false;
 
   // Calculate the edge weights and append the outgoing edge.
-  const double length = GeoUtils::distance(currentCoordinate, neighborCoordinate);
+  const double length = GeoUtils::distance(current.coordinate, neighborCoordinate);
   const double time = travelTime(length, velocity);
-  current.edges.push_back({neighborNode, length, velocity, time});
+  current.edges.push_back({neighborNode, length, velocity, time, time});
   return true;
 }
 
+// Check validity of the OSM data
 bool validateOSMResponse(const QJsonDocument& response, QString& error)
 {
   // Clear a previous error before validating the response envelope.
@@ -94,6 +93,7 @@ bool validateOSMResponse(const QJsonDocument& response, QString& error)
   return true;
 }
 
+// Retrive the directionality of a given road
 WayDirection wayDirection(const QJsonObject& tags)
 {
   // Interpret explicit one-way tags and the OSM-implied one-way road types
@@ -114,6 +114,7 @@ WayDirection wayDirection(const QJsonObject& tags)
 }
 } // namespace
 
+// Build the adjacency list for the road graph
 bool RoadNetwork::buildRoadNetwork(const QJsonDocument& response, QString& error)
 {
   // Validate the response before building a replacement graph
@@ -195,6 +196,13 @@ bool RoadNetwork::buildRoadNetwork(const QJsonDocument& response, QString& error
     }
   }
 
+  // Not a network
+  if (parsedNodes.size() < 2)
+  {
+    error = QStringLiteral("Road network must contain at least two nodes.");
+    return false;
+  }
+
   // Second pass: add each way's outgoing edges to the current node
   for (const QJsonValue& elementValue : elements)
   {
@@ -223,28 +231,40 @@ bool RoadNetwork::buildRoadNetwork(const QJsonDocument& response, QString& error
       // Select adjacent points according to the way's travel direction
       if (direction != WayDirection::Forward && pointIndex > 0)
       {
-        if (addEdgeToNeighbor(current, currentNode, currentCoordinate, geometry, pointIndex - 1,
-                              nodeIndices, velocity))
+        if (addEdge(current, geometry, pointIndex - 1, nodeIndices, velocity))
           ++edgeCount;
       }
       if (direction != WayDirection::Reverse && pointIndex + 1 < geometry.size())
       {
-        if (addEdgeToNeighbor(current, currentNode, currentCoordinate, geometry, pointIndex + 1,
-                              nodeIndices, velocity))
+        if (addEdge(current, geometry, pointIndex + 1, nodeIndices, velocity))
           ++edgeCount;
       }
     }
   }
 
+  // Reject the network if every candidate edge was invalid.
+  if (edgeCount == 0)
+  {
+    error = QStringLiteral("Road network must contain at least one valid edge.");
+    return false;
+  }
+
   // Replace the graph only after the complete response has parsed successfully
   // TODO: remove edgeCount and wayCounts
   m_nodes.swap(parsedNodes);
-  m_reduced_nodes.clear();
   qInfo() << "Parsed" << wayCount << "ways into" << m_nodes.size() << "nodes and" << edgeCount
           << "directed edges.";
+
+  // Initialize the occupancy adjacenct list counters
+  m_occupancy.reserve(m_nodes.size());
+
+  for (const RoadNode& node : m_nodes)
+    m_occupancy.emplace_back(node.edges.size(), 0);
+
   return true;
 }
 
+// Produce a polyline for display
 QVariantList RoadNetwork::roadsPolyline(const QJsonDocument& response)
 {
   // Convert each way's valid geometry points into a path for MapPolyline
@@ -272,8 +292,70 @@ QVariantList RoadNetwork::roadsPolyline(const QJsonDocument& response)
       paths.append(QVariant::fromValue(path));
   }
 
+  // Logging purposes
+  int geometryPoints = 0;
+  for (const QVariant& path : paths)
+    geometryPoints += path.toList().size();
+
+  // Dispatch prepared paths to the map and report the processed response
+  qInfo() << "Overpass request succeeded:" << elements.size() << "elements," << paths.size()
+          << "ways," << geometryPoints << "geometry points.";
+
   return paths;
+}
+
+// Compute the route between two nodes
+bool RoadNetwork::findRoute(std::size_t startNode, std::size_t destinationNode,
+                            RoadRoute& route) const
+{
+  // Clear the output until route finding is implemented
+  Q_UNUSED(startNode);
+  Q_UNUSED(destinationNode);
+  route.clear();
+  return false;
+}
+
+// Reset to zero the occupancy counters
+void RoadNetwork::resetOccupancy()
+{
+  if (m_routingMetric != RoutingMetric::AdaptiveTime)
+    return;
+
+  for (auto& nodeOccupancy : m_occupancy)
+    std::fill(nodeOccupancy.begin(), nodeOccupancy.end(), 0);
+}
+
+// Increment the occupancy counter for an edge in the adaptive routing metric
+void RoadNetwork::incrementOccupancy(const RoadEdgeId id)
+{
+  if (m_routingMetric != RoutingMetric::AdaptiveTime)
+    return;
+
+  // Ignore edge references that do not match the current graph
+  if (id.sourceNode >= m_occupancy.size() || id.edgeIndex >= m_occupancy[id.sourceNode].size())
+    return;
+
+  ++m_occupancy[id.sourceNode][id.edgeIndex];
+}
+
+// Update the travel times according to the occupancy
+void RoadNetwork::updateTravelTimes()
+{
+  if (m_routingMetric != RoutingMetric::AdaptiveTime)
+    return;
+
+  for (RoadNode& node : m_nodes)
+  {
+    for (RoadEdge& edge : node.edges)
+    {
+      // TODO: set formula
+      edge.adaptiveTime = edge.freeFlowTime;
+    }
+  }
 }
 
 // Getter methods
 const std::vector<RoadNode>& RoadNetwork::nodes() const { return m_nodes; }
+
+// Setter methods
+void RoadNetwork::setRoutingMetric(RoutingMetric metric) { m_routingMetric = metric; }
