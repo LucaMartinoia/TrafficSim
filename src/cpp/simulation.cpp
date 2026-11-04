@@ -2,16 +2,24 @@
 
 #include "simulation.h"
 
+Simulation::Simulation()
+{
+  m_timer.setInterval(static_cast<int>(m_timeStep * 1000.0));
+  m_timer.setTimerType(Qt::PreciseTimer);
+}
+
 // Initialize the simulation
-bool Simulation::init(const QJsonDocument& response, QString& error)
+bool Simulation::start(const QJsonDocument& response, QString& error)
 {
   // Build a fresh road graph and leave the current simulation untouched on failure
   if (!m_roadNetwork.buildRoadNetwork(response, error))
     return false;
 
   m_started = true;
+  m_timer.start();
+
   // Log the prepared routing graphs
-  std::vector<RoadNode> nodes = m_roadNetwork.nodes();
+  const auto& nodes = m_roadNetwork.nodes();
   qInfo() << "Built road network with" << m_roadNetwork.nodes().size() << "nodes.";
   for (std::size_t nodeIndex = 0; nodeIndex < nodes.size(); ++nodeIndex)
   {
@@ -43,9 +51,10 @@ bool Simulation::update(QString& error)
   }
 
   // Spawn until the requested active population is reached.
-  while (m_traffic.activeCarCount() < 100)
+  const auto& cars = m_traffic.cars();
+  while (cars.size() < 1)
   {
-    // TODO: it can't never return false
+    // TODO: remove, it can't never return false
     if (!m_traffic.addCar(m_roadNetwork, error))
       break;
   }
@@ -68,6 +77,16 @@ bool Simulation::update(QString& error)
   return true;
 }
 
+// Convert the current active cars into coordinates consumable by QML
+QVariantList Simulation::carPositions() const
+{
+  QVariantList positions;
+  for (const Car& car : m_traffic.cars())
+    positions.append(QVariant::fromValue(car.position));
+
+  return positions;
+}
+
 // Reset the simulation
 void Simulation::clear()
 {
@@ -75,8 +94,10 @@ void Simulation::clear()
   m_traffic = Traffic{};
   m_time = 0.0;
   m_started = false;
+  m_timer.stop();
 }
 
 // Getter methods
 double Simulation::timeStep() const { return m_timeStep; }
 double Simulation::time() const { return m_time; }
+QTimer& Simulation::timer() { return m_timer; }

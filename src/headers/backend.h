@@ -2,6 +2,7 @@
 
 #include <QGeoCoordinate>
 #include <QObject>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -21,21 +22,23 @@ public:
   Q_INVOKABLE void requestBBoxData(const QGeoCoordinate& topLeft,
                                    const QGeoCoordinate& bottomRight);
   Q_INVOKABLE void clearSimulation();
-  Q_INVOKABLE bool clearOSMCache();
-  Q_INVOKABLE bool setDefaultMapView(const QGeoCoordinate& center, int zoomLevel);
-  Q_INVOKABLE QVariantMap getDefaultMapView() const;
+  Q_INVOKABLE bool clearCache();
+  Q_INVOKABLE bool saveSettings(const QGeoCoordinate& center, int zoomLevel);
+  Q_INVOKABLE QVariantMap getSettings() const;
 
 signals:
   // Signals are Qt main async mechanism to send callbacks between modules and GUI
   void roadsReceived(const QVariantList& paths);
+  void carsUpdated(const QVariantList& positions);
 
 private slots:
   // Slots are the callbacks connected to signals
   void handleOSMRequest(const QString& query, const QJsonDocument& response);
   void handleOSMError(const QString& query, const QString& error);
+  void updateSimulation();
 
 private:
-  void loadDefaultMapView();
+  void loadSettings();
 
   // Backend owns the OSMClient and the Simulation engine
   OSMClient m_OSMclient;

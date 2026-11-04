@@ -1,9 +1,9 @@
 #include <cmath>
 #include <vector>
 
+#include <QGeoCoordinate>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QGeoCoordinate>
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -147,7 +147,7 @@ private slots:
     QVERIFY(edgeCount > 0);
   }
 
-  void simulationDefersUntilTrafficUpdateIsImplemented()
+  void simulationMovesCarsOnFixedSteps()
   {
     // Start with one directed road and verify the simulation time-step lifecycle.
     const QByteArray json = R"json(
@@ -171,22 +171,32 @@ private slots:
     QVERIFY(!error.isEmpty());
     QCOMPARE(simulation.time(), 0.0);
 
-    QVERIFY2(simulation.init(QJsonDocument::fromJson(json), error), qPrintable(error));
+    QVERIFY2(simulation.start(QJsonDocument::fromJson(json), error), qPrintable(error));
     QCOMPARE(simulation.time(), 0.0);
-    QVERIFY(simulation.timeStep() > 0.0);
+    QCOMPARE(simulation.timeStep(), 0.05);
 
-    // The simulation reports that traffic movement is not implemented yet.
-    QVERIFY(!simulation.update(error));
-    QVERIFY(!error.isEmpty());
-    QCOMPARE(simulation.time(), 0.0);
+    // The first step creates cars and the next step moves them along the road.
+    QVERIFY2(simulation.update(error), qPrintable(error));
+    QCOMPARE(simulation.time(), 0.05);
+    const QVariantList initialPositions = simulation.carPositions();
+    QCOMPARE(initialPositions.size(), qsizetype(100));
 
+    QVERIFY2(simulation.update(error), qPrintable(error));
+    QCOMPARE(simulation.time(), 0.1);
+    const QVariantList movedPositions = simulation.carPositions();
+    QCOMPARE(movedPositions.size(), initialPositions.size());
+    const QGeoCoordinate initialPosition = initialPositions.first().value<QGeoCoordinate>();
+    const QGeoCoordinate movedPosition = movedPositions.first().value<QGeoCoordinate>();
+    QVERIFY(initialPosition.distanceTo(movedPosition) > 0.0);
+
+    // Clear the simulation and verify that it cannot advance without a network.
     simulation.clear();
     QVERIFY(!simulation.update(error));
     QVERIFY(!error.isEmpty());
     QCOMPARE(simulation.time(), 0.0);
   }
 
-  void trafficSkipsCarWhenRouteIsUnavailable()
+  void trafficCreatesCarUsingReachableRoute()
   {
     // Build one segment with a 36 km/h limit, equivalent to 10 meters per second.
     const QByteArray json = R"json(
@@ -204,15 +214,16 @@ private slots:
       }
     )json";
 
-    // Parse the road and try to create a car while route finding is still a stub.
+    // Parse a directed road and verify that a car receives a route on it.
     RoadNetwork network;
     QString error;
     QVERIFY2(network.buildRoadNetwork(QJsonDocument::fromJson(json), error), qPrintable(error));
     Traffic traffic;
     error = QStringLiteral("previous error");
-    QVERIFY(!traffic.addCar(network, error));
+    QVERIFY2(traffic.addCar(network, error), qPrintable(error));
     QVERIFY(error.isEmpty());
-    QVERIFY(traffic.cars().empty());
+    QCOMPARE(traffic.cars().size(), std::size_t(1));
+    QCOMPARE(traffic.cars().front().route.size(), std::size_t(1));
   }
 };
 

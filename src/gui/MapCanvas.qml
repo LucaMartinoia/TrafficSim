@@ -48,7 +48,7 @@ Item {
         if (!root.backend || !mapView || !mapView.map)
             return;
 
-        const defaults = root.backend.getDefaultMapView();
+        const defaults = root.backend.getSettings();
         if (!defaults)
             return;
 
@@ -110,6 +110,10 @@ Item {
 
         function onRoadsReceived(paths) {
             roads.paths = paths;
+        }
+
+        function onCarsUpdated(positions) {
+            cars.positions = positions;
         }
     }
 }

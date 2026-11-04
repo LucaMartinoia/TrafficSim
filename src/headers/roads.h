@@ -58,9 +58,7 @@ public:
   // Build the adjacency list from OSM data
   bool buildRoadNetwork(const QJsonDocument& response, QString& error);
   // Find a directed route as edge references using the selected edge cost
-  bool Dijkstra(std::size_t startNode, std::size_t destinationNode, RoadRoute& route);
-  bool Astar(std::size_t startNode, std::size_t destinationNode, RoadRoute& route);
-  bool findRoute(std::size_t startNode, std::size_t destinationNode, RoadRoute& route) const;
+  bool findRoute(std::size_t startNode, std::size_t endNode, RoadRoute& route) const;
   // Refresh only the adaptive travel-time weights from the current occupancy snapshot
   void resetOccupancy();
   void updateTravelTimes();
@@ -75,6 +73,10 @@ public:
   void incrementOccupancy(const RoadEdgeId id);
 
 private:
+  bool Dijkstra(std::size_t startNode, std::size_t endNode, RoadRoute& route) const;
+  bool Astar(std::size_t startNode, std::size_t endNode, RoadRoute& route, double weight) const;
+  double heuristic(std::size_t node, std::size_t end) const;
+
   std::vector<RoadNode> m_nodes;
   Algorithm m_algorithm = Algorithm::Dijkstra;
   RoutingMetric m_routingMetric = RoutingMetric::Distance;

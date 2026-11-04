@@ -11,14 +11,16 @@
 Backend::Backend(QObject* parent) : QObject(parent)
 {
   // Route successful and failed Overpass replies through named backend handlers
-  QObject::connect(&m_OSMclient, &OSMClient::requestSucceeded, this, &Backend::handleOSMRequest);
-  QObject::connect(&m_OSMclient, &OSMClient::requestFailed, this, &Backend::handleOSMError);
+  connect(&m_OSMclient, &OSMClient::requestSucceeded, this, &Backend::handleOSMRequest);
+  connect(&m_OSMclient, &OSMClient::requestFailed, this, &Backend::handleOSMError);
+  // Timer-based simulation timestep
+  connect(&m_simulation.timer(), &QTimer::timeout, this, &Backend::updateSimulation);
 
-  loadDefaultMapView();
+  loadSettings();
 }
 
 // Load persisted defaults
-void Backend::loadDefaultMapView()
+void Backend::loadSettings()
 {
   QSettings settings;
   bool zoomOk = false;
@@ -38,21 +40,8 @@ void Backend::loadDefaultMapView()
   }
 }
 
-// Forward the UI requests
-void Backend::requestBBoxData(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight)
-{
-  m_OSMclient.requestRoadsBBox(topLeft, bottomRight);
-}
-
-// Reset simulation
-void Backend::clearSimulation()
-{
-  m_simulation.clear();
-  emit roadsReceived({});
-}
-
 // Setter method for the persistent settings
-bool Backend::setDefaultMapView(const QGeoCoordinate& center, int zoom)
+bool Backend::saveSettings(const QGeoCoordinate& center, int zoom)
 {
   // Reject invalid map defaults before persisting them
   if (!GeoUtils::isValidMapView(center, zoom))
@@ -79,7 +68,7 @@ bool Backend::setDefaultMapView(const QGeoCoordinate& center, int zoom)
 }
 
 // Getter method for the persistent settings
-QVariantMap Backend::getDefaultMapView() const
+QVariantMap Backend::getSettings() const
 {
   // Return the three map defaults through the QML-invokable getter
   QVariantMap mapView;
@@ -88,22 +77,51 @@ QVariantMap Backend::getDefaultMapView() const
   return mapView;
 }
 
-bool Backend::clearOSMCache() { return m_OSMclient.clearCache(); }
+// Forward cache clearing
+bool Backend::clearCache() { return m_OSMclient.clearCache(); }
+
+// Forward the UI requests
+void Backend::requestBBoxData(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight)
+{
+  m_OSMclient.requestRoadsBBox(topLeft, bottomRight);
+}
+
+// Reset simulation
+void Backend::clearSimulation()
+{
+  m_simulation.clear();
+  emit roadsReceived({});
+  emit carsUpdated({});
+}
+
+// Advance one fixed simulation step and publish the updated map positions
+void Backend::updateSimulation()
+{
+  QString error;
+  if (!m_simulation.update(error))
+  {
+    // TODO: fix?
+    clearSimulation();
+    qWarning().noquote() << "Could not update simulation:" << error;
+    return;
+  }
+
+  emit carsUpdated(m_simulation.carPositions());
+}
 
 // Valid OSM request handling
 void Backend::handleOSMRequest(const QString& query, const QJsonDocument& response)
 {
   // Prepare the simulation's network before dispatching road paths to the UI
   QString simulationError;
-  if (!m_simulation.init(response, simulationError))
+  if (!m_simulation.start(response, simulationError))
   {
     qWarning().noquote() << "Could not start simulation for query:" << query << simulationError;
     return;
   }
 
-  // Prepare display paths and their summary counts for the existing success log
+  // Prepare the map paths and publish the initial empty traffic state
   const QVariantList paths = RoadNetwork::roadsPolyline(response);
-
   emit roadsReceived(paths);
 }
 

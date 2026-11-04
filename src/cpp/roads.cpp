@@ -1,6 +1,9 @@
 #include <algorithm>
 #include <cmath>
+#include <functional> // TODO: remove this crap
+#include <limits>
 #include <map>
+#include <queue>
 
 #include <QDebug>
 #include <QJsonArray>
@@ -14,14 +17,6 @@
 // Nameless namespace to keep helper scoped to this module only
 namespace
 {
-// Enum to store the direction of a given way
-enum class WayDirection
-{
-  Forward,
-  Reverse,
-  Bidirectional
-};
-
 // Comparator necessary to use std::map with QGeoCoordinate as keys
 struct comparator
 {
@@ -92,6 +87,14 @@ bool validateOSMResponse(const QJsonDocument& response, QString& error)
 
   return true;
 }
+
+// Enum to store the direction of a given way
+enum class WayDirection
+{
+  Forward,
+  Reverse,
+  Bidirectional
+};
 
 // Retrive the directionality of a given road
 WayDirection wayDirection(const QJsonObject& tags)
@@ -305,14 +308,119 @@ QVariantList RoadNetwork::roadsPolyline(const QJsonDocument& response)
 }
 
 // Compute the route between two nodes
-bool RoadNetwork::findRoute(std::size_t startNode, std::size_t destinationNode,
-                            RoadRoute& route) const
+bool RoadNetwork::findRoute(std::size_t startNode, std::size_t endNode, RoadRoute& route) const
 {
-  // Clear the output until route finding is implemented
-  Q_UNUSED(startNode);
-  Q_UNUSED(destinationNode);
+  // Basic validity checks
+  if (startNode >= m_nodes.size() || endNode >= m_nodes.size() || startNode == endNode)
+    return false;
+
   route.clear();
-  return false;
+
+  // Switch case for the path finding algorithm
+  if (m_algorithm == Algorithm::Dijkstra)
+  {
+    return Dijkstra(startNode, endNode, route);
+  }
+  else if (m_algorithm == Algorithm::Astar)
+  {
+    return Astar(startNode, endNode, route, 1);
+  }
+  else
+    return false;
+}
+
+// Dijkstra implementation
+bool RoadNetwork::Dijkstra(std::size_t startNode, std::size_t endNode, RoadRoute& route) const
+{
+  return Astar(startNode, endNode, route, 0);
+}
+
+// A* implementation
+bool RoadNetwork::Astar(std::size_t startNode, std::size_t endNode, RoadRoute& route,
+                        double weight) const
+{
+  // Track the best known cost and predecessor edge for each graph node
+  const double infinity = std::numeric_limits<double>::infinity();
+  // The edge cost
+  std::vector<double> costs(m_nodes.size(), infinity);
+  // The edge to the previous node
+  std::vector<RoadEdgeId> predecessors(m_nodes.size());
+  // Min-priority queue ordered by cost (std::greater reverses the default max-heap ordering).
+  using QueueEntry = std::tuple<double, double, std::size_t>;
+  std::priority_queue<QueueEntry, std::vector<QueueEntry>, std::greater<QueueEntry>> queue;
+  // Initialize starting node
+  costs[startNode] = 0.0;
+  double priority = weight * heuristic(startNode, endNode);
+  queue.emplace(priority, 0.0, startNode);
+
+  // Visit the lowest-cost reachable node until the destination is finalized
+  while (!queue.empty())
+  {
+    // Select current node
+    const auto [_, currentCost, currentNode] = queue.top();
+    queue.pop();
+    // Prune old queue entries
+    if (currentCost > costs[currentNode])
+      continue;
+    if (currentNode == endNode)
+      break;
+
+    // Loop over outgoing edges
+    const std::vector<RoadEdge>& edges = m_nodes[currentNode].edges;
+    for (std::size_t edgeIndex = 0; edgeIndex < edges.size(); ++edgeIndex)
+    {
+      const RoadEdge& edge = edges[edgeIndex];
+      // Find edge cost depending on selected metric
+      double edgeCost = -1.;
+      if (m_routingMetric == RoutingMetric::Distance)
+        edgeCost = edge.length;
+      else if (m_routingMetric == RoutingMetric::TravelTime)
+        edgeCost = edge.freeFlowTime;
+      else if (m_routingMetric == RoutingMetric::AdaptiveTime)
+        edgeCost = edge.adaptiveTime;
+
+      if (!std::isfinite(edgeCost) || edgeCost < 0.0)
+        continue;
+
+      // If the new cost is smaller, update the cost and the queue
+      const double candidateCost = currentCost + edgeCost;
+      if (candidateCost >= costs[edge.destination])
+        continue;
+
+      costs[edge.destination] = candidateCost;
+      predecessors[edge.destination] = {currentNode, edgeIndex};
+      priority = candidateCost + weight * heuristic(edge.destination, endNode);
+      queue.emplace(priority, candidateCost, edge.destination);
+    }
+  }
+
+  // If destination cannot be reached, return false
+  if (!std::isfinite(costs[endNode]))
+    return false;
+
+  // Reconstruct edge references from the destination back to the start
+  for (std::size_t node = endNode; node != startNode;)
+  {
+    const RoadEdgeId& edgeId = predecessors[node];
+
+    route.push_back(edgeId);
+    node = edgeId.sourceNode;
+  }
+
+  std::reverse(route.begin(), route.end());
+  return true;
+}
+
+// Function to compute the heuristic
+double RoadNetwork::heuristic(std::size_t node, std::size_t end) const
+{
+  const double distance = GeoUtils::distance(m_nodes[node].coordinate, m_nodes[end].coordinate);
+
+  if (m_routingMetric == RoutingMetric::Distance)
+    return distance;
+
+  constexpr double maxVelocity = 130.0 / 3.6; // m/s
+  return distance / maxVelocity;
 }
 
 // Reset to zero the occupancy counters

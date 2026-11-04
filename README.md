@@ -13,7 +13,7 @@ Use the VS Code Command Palette (`Ctrl+Shift+P`) to select a CMake variant, such
 1. The user pans/zooms to a desired map area and clicks **Lock view**.
 2. `MapCanvas` converts the visible map corners into a geographic bounding box. `Backend` expands each side by five percent of the visible latitude/longitude span and dispatches the request to `OverpassClient`.
 3. `OverpassClient` sends the Overpass query, validates responses, and caches valid JSON under Qt's writable `AppDataLocation` in a `roads_data` directory, using a separate file per query.
-4. On success, the backend starts `Simulation`, which builds the full `RoadNetwork`, constructs a reduced routing graph, logs graph information, and resets simulation time and traffic state before the backend dispatches road coordinate paths to the QML map.
+4. On success, the backend builds the full `RoadNetwork`, dispatches road paths to the map, and starts a 50 ms `QTimer`. Each timer event advances one fixed simulation step and sends active car coordinates to the QML map.
 5. On request failure, the backend logs the error. The QML map receives valid way geometry through the backend's `roadsReceived` signal.
 
 The Overpass service and a network connection are required on a cache miss. Remove the corresponding JSON file in the app data cache directory to fetch that query again.
@@ -27,13 +27,13 @@ The Overpass service and a network connection are required on a cache miss. Remo
 - Each full edge stores segment length in meters, maximum velocity in meters per second, and estimated travel time in seconds. OSM `maxspeed` values in km/h (or unitless values) and mph are converted to meters per second; if a usable numeric value is absent, the parser assumes 50 km/h and converts it to meters per second.
 - Coordinates shared between ways are merged. OSM `oneway` tags and supported implied one-way cases set edge direction.
 
-Each edge stores its static `length`, `maxVelocity`, and `freeFlowTime`, plus a dynamic `adaptiveTime`. `RoutingMetric::Distance` selects length, `TravelTime` selects free-flow time, and `AdaptiveTime` selects the traffic-dependent estimate. Adaptive weights are refreshed from an occupancy snapshot; this calculation and route finding are not implemented yet.
+Each edge stores its static `length`, `maxVelocity`, and `freeFlowTime`, plus a dynamic `adaptiveTime`. `RoutingMetric::Distance` selects length, `TravelTime` selects free-flow time, and `AdaptiveTime` selects the adaptive estimate. Route finding uses Dijkstra's algorithm with the selected edge cost. Adaptive-time routing currently uses free-flow travel time; occupancy-dependent costs are not implemented yet.
 
 ## Traffic model and geographic utilities
 
-`RoadEdgeId` identifies an outgoing edge by source node index and local edge index. `RoadRoute` stores these references so a car can access the current segment directly. `RoadNetwork::findRoute` takes endpoint node indices and a `RoutingMetric`, and reports whether a directed route was found.
+`RoadEdgeId` identifies an outgoing edge by source node index and local edge index. `RoadRoute` stores these references so a car can access the current segment directly. `RoadNetwork::findRoute` takes endpoint node indices and reports whether a directed route was found using the network's selected routing metric.
 
-`TrafficCar` stores its route, current route segment and progress in meters, current `QGeoCoordinate`, velocity, and arrival state. `Traffic::edgeOccupancy` derives per-edge vehicle counts from cars' current route edges. `Simulation::step` is structured to move cars against one occupancy snapshot, refresh adaptive edge weights from the resulting occupancy, and spawn cars up to the requested active-car count using the selected routing metric. Car movement, adaptive-weight calculation, and route finding remain stubs. The simulation uses a 1/60-second timestep.
+`Car` stores its route, current route segment and progress in meters, current `QGeoCoordinate`, velocity, and arrival state. Traffic movement carries remaining time across edge boundaries, updates geographic positions, and records edge occupancy. `Simulation::update` advances by 0.05 seconds and spawns cars up to its active-car target. The backend timer and QML event handling run on the GUI thread; keep each update small so map interaction stays responsive.
 
 `GeoUtils` wraps Qt's `QGeoCoordinate` geodesic operations to calculate distance in meters and a coordinate at a distance along a segment.
 
@@ -45,12 +45,7 @@ Tests use Qt Test and CTest. The test target and test registration are kept in `
 2. Open the **CMake** view, expand **Tests**, and run a test or the full test suite.
 3. Use the test results view to inspect failures and output.
 
-The current tests cover:
-
-- `road_network_parsing`: parses an inline Overpass JSON fixture and checks the full adjacency list, shared nodes, one-way direction, speed conversion to meters per second, and reduced cumulative edge weights.
-- `traffic_uses_meters_per_second`: verifies the road speed limit and simulation movement use meters per second and meters.
-- `simulation_start_and_step`: verifies starting prepares the network without advancing time, and an explicit simulation step integrates one configured time step.
-- `overpass_default_query`: issues the live default Overpass query and validates that the parsed full and reduced graphs contain nodes and edges. This integration test needs network access and can fail when Overpass is unavailable.
+The tests cover road parsing, coordinate validation, route-based car creation, fixed-step simulation movement, and `overpass_default_query`. The Overpass integration test issues a live request and needs network access, so it can fail when the service is unavailable.
 
 ## Qt deployment
 

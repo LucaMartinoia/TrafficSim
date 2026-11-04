@@ -48,24 +48,30 @@ void Traffic::update(RoadNetwork& network, double dt)
 
   for (Car& car : m_cars)
   {
-    const RoadEdge& edge = car.getEdge(network);
+    // Time in this update
+    double remainingTime = dt;
 
-    // Calculate speed using the previous adaptive travel time
-    car.velocity = edge.length / edge.adaptiveTime;
-
-    // Time needed to reach the end of the current edge
-    const double remainingDistance = edge.length - car.distance;
-    const double timeToEnd = remainingDistance / car.velocity;
-
-    if (dt >= timeToEnd)
+    // While there is time left and car is not arrived, move it forward
+    while (remainingTime > 0.0 && car.routeSegment < car.route.size())
     {
-      // Advance to the next edge
-      car.distance -= edge.length;
-      ++car.routeSegment;
-    }
-    else
-    {
-      car.distance += car.velocity * dt;
+      // Current edge data
+      const RoadEdge& edge = car.getEdge(network);
+      car.velocity = edge.length / edge.adaptiveTime;
+      const double remainingDistance = edge.length - car.distance;
+      const double timeToEnd = remainingDistance / car.velocity;
+
+      // If enough time to reach end of this segment, move to next one
+      if (remainingTime >= timeToEnd)
+      {
+        car.distance = 0.0;
+        remainingTime -= timeToEnd;
+        ++car.routeSegment;
+      }
+      else
+      {
+        car.distance += car.velocity * remainingTime;
+        remainingTime = 0.0;
+      }
     }
 
     if (car.routeSegment >= car.route.size())
@@ -86,19 +92,6 @@ void Traffic::update(RoadNetwork& network, double dt)
       network.incrementOccupancy(id);
     }
   }
-}
-
-// TODO: remove?
-std::size_t Traffic::activeCarCount() const
-{
-  // Count cars that have not completed their route
-  std::size_t activeCount = 0;
-  for (const Car& car : m_cars)
-  {
-    if (!car.arrived)
-      ++activeCount;
-  }
-  return activeCount;
 }
 
 // TODO: maybe we can just keep the cars in the array and set the flag to false?

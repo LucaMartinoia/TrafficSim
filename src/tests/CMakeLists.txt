@@ -38,13 +38,13 @@ add_test(
 )
 
 add_test(
-    NAME traffic_skips_car_without_route
-    COMMAND TrafficSimTests trafficSkipsCarWhenRouteIsUnavailable
+    NAME traffic_creates_car_on_reachable_route
+    COMMAND TrafficSimTests trafficCreatesCarUsingReachableRoute
 )
 
 add_test(
-    NAME simulation_defers_until_traffic_update
-    COMMAND TrafficSimTests simulationDefersUntilTrafficUpdateIsImplemented
+    NAME simulation_moves_cars_on_fixed_steps
+    COMMAND TrafficSimTests simulationMovesCarsOnFixedSteps
 )
 
 add_test(
