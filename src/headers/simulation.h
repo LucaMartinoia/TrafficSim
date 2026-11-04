@@ -1,7 +1,6 @@
 #pragma once
 
-#include <cstddef>
-
+#include <QGeoCoordinate>
 #include <QJsonDocument>
 #include <QString>
 #include <QTimer>
@@ -17,7 +16,7 @@ public:
   explicit Simulation();
   // Load and prepare a road network without starting a blocking simulation loop
   bool start(const QJsonDocument& response, QString& error);
-  // Update traffic and maintain the requested active-car population for one timestep
+  // Update traffic and sample new-car arrivals for one timestep
   bool update(QString& error);
   // Return active car positions for the map overlay
   QVariantList carPositions() const;
@@ -28,6 +27,7 @@ public:
   double timeStep() const;
   double time() const;
   QTimer& timer();
+  Traffic& traffic();
 
 private:
   RoadNetwork m_roadNetwork;

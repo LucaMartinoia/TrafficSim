@@ -2,8 +2,6 @@
 #include <QJsonObject>
 #include <QSettings>
 
-#include <cmath>
-
 #include "backend.h"
 #include "geo_utils.h"
 
@@ -84,6 +82,9 @@ bool Backend::clearCache() { return m_OSMclient.clearCache(); }
 void Backend::requestBBoxData(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight)
 {
   m_OSMclient.requestRoadsBBox(topLeft, bottomRight);
+
+  // Set the simulation population from this request's bounding-box area
+  m_simulation.traffic().setTargetFromBBox(topLeft, bottomRight);
 }
 
 // Reset simulation

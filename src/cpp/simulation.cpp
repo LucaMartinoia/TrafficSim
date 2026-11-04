@@ -50,14 +50,9 @@ bool Simulation::update(QString& error)
     return false;
   }
 
-  // Spawn until the requested active population is reached.
-  const auto& cars = m_traffic.cars();
-  while (cars.size() < 1)
-  {
-    // TODO: remove, it can't never return false
-    if (!m_traffic.addCar(m_roadNetwork, error))
-      break;
-  }
+  // Delegate stochastic car arrivals to the traffic model
+  if (!m_traffic.spawnCars(m_roadNetwork, m_timeStep, error))
+    return false;
 
   // Reset the occupancy list
   m_roadNetwork.resetOccupancy();
@@ -101,3 +96,4 @@ void Simulation::clear()
 double Simulation::timeStep() const { return m_timeStep; }
 double Simulation::time() const { return m_time; }
 QTimer& Simulation::timer() { return m_timer; }
+Traffic& Simulation::traffic() { return m_traffic; }

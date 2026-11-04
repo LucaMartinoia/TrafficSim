@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <cmath>
-#include <functional> // TODO: remove this crap
 #include <limits>
 #include <map>
 #include <queue>
@@ -51,12 +50,20 @@ double maxVelocity(const QJsonObject& tags)
   return speed / 3.6;
 }
 
+int laneCount(const QJsonObject& tags)
+{
+  // Treat absent or unusable lane tags as a single lane
+  bool isNumeric = false;
+  const int lanes = tags.value(QStringLiteral("lanes")).toString().toInt(&isNumeric);
+  return isNumeric && lanes > 0 ? lanes : 1;
+}
+
 // Returns time in seconds
 double travelTime(double length, double velocity) { return length / velocity; }
 
 // Add edges to the adjacency map
 bool addEdge(RoadNode& current, const QJsonArray& geometry, int neighborPointIndex,
-             const std::map<QGeoCoordinate, std::size_t, comparator>& nodeIndices, double velocity)
+             const std::map<QGeoCoordinate, std::size_t, comparator>& nodeIndices, RoadEdge edge)
 {
   // Resolve the neighbor and skip geometry points that map to the current node.
   const QJsonObject neighborPoint = geometry.at(neighborPointIndex).toObject();
@@ -66,10 +73,12 @@ bool addEdge(RoadNode& current, const QJsonArray& geometry, int neighborPointInd
   if (neighborCoordinate == current.coordinate)
     return false;
 
-  // Calculate the edge weights and append the outgoing edge.
-  const double length = GeoUtils::distance(current.coordinate, neighborCoordinate);
-  const double time = travelTime(length, velocity);
-  current.edges.push_back({neighborNode, length, velocity, time, time});
+  // Fill the geometry-dependent fields and append this outgoing edge.
+  edge.destination = neighborNode;
+  edge.length = GeoUtils::distance(current.coordinate, neighborCoordinate);
+  edge.freeFlowTime = travelTime(edge.length, edge.maxVelocity);
+  edge.adaptiveTime = edge.freeFlowTime;
+  current.edges.push_back(edge);
   return true;
 }
 
@@ -219,7 +228,10 @@ bool RoadNetwork::buildRoadNetwork(const QJsonDocument& response, QString& error
     const QJsonArray geometry = element.value(QStringLiteral("geometry")).toArray();
     const QJsonObject tags = element.value(QStringLiteral("tags")).toObject();
     const WayDirection direction = wayDirection(tags);
-    const double velocity = maxVelocity(tags);
+    // Keep this way's shared metadata on the stub copied into each emitted edge.
+    RoadEdge edge{};
+    edge.maxVelocity = maxVelocity(tags);
+    edge.lanes = laneCount(tags);
 
     // Loop over all points in the given way
     for (int pointIndex = 0; pointIndex < geometry.size(); ++pointIndex)
@@ -234,12 +246,12 @@ bool RoadNetwork::buildRoadNetwork(const QJsonDocument& response, QString& error
       // Select adjacent points according to the way's travel direction
       if (direction != WayDirection::Forward && pointIndex > 0)
       {
-        if (addEdge(current, geometry, pointIndex - 1, nodeIndices, velocity))
+        if (addEdge(current, geometry, pointIndex - 1, nodeIndices, edge))
           ++edgeCount;
       }
       if (direction != WayDirection::Reverse && pointIndex + 1 < geometry.size())
       {
-        if (addEdge(current, geometry, pointIndex + 1, nodeIndices, velocity))
+        if (addEdge(current, geometry, pointIndex + 1, nodeIndices, edge))
           ++edgeCount;
       }
     }
@@ -452,12 +464,18 @@ void RoadNetwork::updateTravelTimes()
   if (m_routingMetric != RoutingMetric::AdaptiveTime)
     return;
 
-  for (RoadNode& node : m_nodes)
+  for (std::size_t nodeIndex = 0; nodeIndex < m_nodes.size(); ++nodeIndex)
   {
-    for (RoadEdge& edge : node.edges)
+    RoadNode& node = m_nodes[nodeIndex];
+    for (std::size_t edgeIndex = 0; edgeIndex < node.edges.size(); ++edgeIndex)
     {
-      // TODO: set formula
+      RoadEdge& edge = node.edges[edgeIndex];
+      const std::size_t cars = m_occupancy[nodeIndex][edgeIndex];
       edge.adaptiveTime = edge.freeFlowTime;
+
+      // Delay scales linearly with cars
+      if (cars > 1)
+        edge.adaptiveTime *= 1.0 + static_cast<double>(cars - 1) / static_cast<double>(edge.lanes);
     }
   }
 }

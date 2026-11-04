@@ -16,6 +16,7 @@ struct RoadEdge
   double maxVelocity;
   double freeFlowTime;
   double adaptiveTime;
+  int lanes;
 };
 
 struct RoadNode

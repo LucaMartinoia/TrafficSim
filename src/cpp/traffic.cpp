@@ -1,6 +1,9 @@
+#include <cmath>
+#include <limits>
 #include <random>
 #include <utility>
 
+#include "geo_utils.h"
 #include "traffic.h"
 
 // Helper to retrive edge fata from the adjacency list
@@ -21,23 +24,54 @@ bool Traffic::addCar(const RoadNetwork& network, QString& error)
   Car car;
 
   // Select distinct start and destination nodes uniformly at random
-  std::random_device randomDevice;
-  std::mt19937 generator(randomDevice());
   std::uniform_int_distribution<std::size_t> nodeDistribution(0, nodes.size() - 1);
-  std::size_t start = nodeDistribution(generator);
-  std::size_t destination = nodeDistribution(generator);
+  std::size_t start = nodeDistribution(m_randomEngine);
+  std::size_t destination = nodeDistribution(m_randomEngine);
 
   // Check if selected nodes lead to a valid path
   while (start == destination || !network.findRoute(start, destination, car.route))
   {
-    start = nodeDistribution(generator);
-    destination = nodeDistribution(generator);
+    start = nodeDistribution(m_randomEngine);
+    destination = nodeDistribution(m_randomEngine);
   }
 
   // Initialize the car at its route origin using the first referenced edge
   car.position = nodes[start].coordinate;
   car.velocity = car.getEdge(network).maxVelocity;
   m_cars.push_back(std::move(car));
+  return true;
+}
+
+bool Traffic::spawnCars(const RoadNetwork& network, double dt, QString& error)
+{
+  // Refuse invalid time steps before constructing the arrival distribution
+  if (!std::isfinite(dt) || dt < 0.0)
+  {
+    error = QStringLiteral("Car spawning requires a finite, non-negative timestep.");
+    return false;
+  }
+
+  if (m_target <= 0)
+    return true;
+
+  // Increase the arrival rate as the active population falls below its target
+  // TODO: eventually scale lambda by a random factor to increase fluctuations
+  constexpr double lambdaMin = 0.01; // Baseline arrivals per target car per unit time
+  const double scale = static_cast<double>(m_target) / 10.0;
+  const double deltaN = static_cast<double>(m_cars.size()) - static_cast<double>(m_target);
+  const double lambda = lambdaMin * m_target * std::exp(-deltaN / scale);
+  std::poisson_distribution<int> arrivalCount(m_scale * lambda * dt);
+  const int arrivals = arrivalCount(m_randomEngine);
+
+  // Add each car sampled for this timestep
+  for (int arrival = 0; arrival < arrivals; ++arrival)
+  {
+    if (!addCar(network, error))
+      return false;
+  }
+
+  qInfo() << "Cars to spawn: " << arrivals << "on target" << m_target;
+
   return true;
 }
 
@@ -101,5 +135,27 @@ void Traffic::removeCars()
   std::erase_if(m_cars, [](const Car& car) { return car.arrived; });
 }
 
+// Setter methods
+void Traffic::setTargetFromBBox(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight)
+{
+  // Convert the bounding-box area into the estimated moving-car population
+  constexpr double peoplePerSquareMeter = 2.0e-3;
+  constexpr double carsPerPerson = 0.7;
+  constexpr double movingCarRatio = 0.1;
+  const double estimatedCars =
+      GeoUtils::area(topLeft, bottomRight) * peoplePerSquareMeter * carsPerPerson * movingCarRatio;
+  // TODO: remove and put a default traffic value
+  if (!std::isfinite(estimatedCars) ||
+      estimatedCars > static_cast<double>(std::numeric_limits<int>::max()))
+    return;
+
+  // Delegate the rounded estimate to the generic car-count setter
+  setTarget(static_cast<int>(estimatedCars));
+  return;
+}
+
+void Traffic::setTarget(int count) { m_target = count > 0 ? count : 0; }
+
 // Getter methods
 const std::vector<Car>& Traffic::cars() const { return m_cars; }
+int Traffic::target() const { return m_target; }

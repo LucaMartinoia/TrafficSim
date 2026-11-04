@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cstddef>
+#include <random>
 #include <vector>
 
 #include <QGeoCoordinate>
@@ -24,16 +24,25 @@ struct Car
 class Traffic
 {
 public:
+  // Sample and add new cars for one timestep based on the population deficit
+  bool spawnCars(const RoadNetwork& network, double dt, QString& error);
   // Pick random endpoints and add a car only when route planning succeeds
   bool addCar(const RoadNetwork& network, QString& error);
   void removeCars();
-
   // Advance all cars against the same occupancy snapshot for this timestep
   void update(RoadNetwork& network, double dt);
 
-  std::size_t activeCarCount() const;
+  // Setter methods
+  void setTargetFromBBox(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight);
+  void setTarget(int count);
+
+  // Getter methods
   const std::vector<Car>& cars() const;
+  int target() const;
 
 private:
+  std::mt19937 m_randomEngine{std::random_device{}()};
   std::vector<Car> m_cars;
+  int m_target = 1;
+  int m_scale = 1;
 };
