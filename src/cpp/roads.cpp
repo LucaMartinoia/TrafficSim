@@ -267,6 +267,7 @@ bool RoadNetwork::buildRoadNetwork(const QJsonDocument& response, QString& error
   // Replace the graph only after the complete response has parsed successfully
   // TODO: remove edgeCount and wayCounts
   m_nodes.swap(parsedNodes);
+  m_occupancy.clear();
   qInfo() << "Parsed" << wayCount << "ways into" << m_nodes.size() << "nodes and" << edgeCount
           << "directed edges.";
 
@@ -483,5 +484,27 @@ void RoadNetwork::updateTravelTimes()
 // Getter methods
 const std::vector<RoadNode>& RoadNetwork::nodes() const { return m_nodes; }
 
+// Clear graph data
+void RoadNetwork::clear()
+{
+  m_nodes.clear();
+  m_occupancy.clear();
+}
+
 // Setter methods
+void RoadNetwork::setRoutingMetric(QString metric)
+{
+  if (metric == QStringLiteral("Distance"))
+    setRoutingMetric(RoutingMetric::Distance);
+  else if (metric == QStringLiteral("Travel time"))
+    setRoutingMetric(RoutingMetric::TravelTime);
+  else if (metric == QStringLiteral("Adaptive time"))
+    setRoutingMetric(RoutingMetric::AdaptiveTime);
+  else
+  {
+    qWarning() << "Ignoring unknown routing metric:" << metric;
+  }
+}
+
+// Keep enum-based callers available alongside the UI-facing string setter
 void RoadNetwork::setRoutingMetric(RoutingMetric metric) { m_routingMetric = metric; }

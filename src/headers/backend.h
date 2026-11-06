@@ -25,17 +25,21 @@ public:
   Q_INVOKABLE bool clearCache();
   Q_INVOKABLE bool saveSettings(const QGeoCoordinate& center, int zoomLevel);
   Q_INVOKABLE QVariantMap getSettings() const;
+  Q_INVOKABLE bool setRoutingMetric(const QString& metric);
+  Q_INVOKABLE bool setTargetScale(double scale);
 
 signals:
   // Signals are Qt main async mechanism to send callbacks between modules and GUI
   void roadsReceived(const QVariantList& paths);
   void carsUpdated(const QVariantList& positions);
+  void logMessage(QString severity, QString message);
 
 private slots:
   // Slots are the callbacks connected to signals
   void handleOSMRequest(const QString& query, const QJsonDocument& response);
   void handleOSMError(const QString& query, const QString& error);
-  void updateSimulation();
+  void handleSimulationError(const QString& error);
+  void publishLogMessage(QString severity, QString message);
 
 private:
   void loadSettings();

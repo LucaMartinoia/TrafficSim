@@ -5,6 +5,7 @@
 #include <QGeoCoordinate>
 #include <QJsonDocument>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QUrl>
 
@@ -24,6 +25,7 @@ public:
   // Convenience methods for the fixed query and a bounding-box query
   void requestDefault();
   void requestRoadsBBox(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight);
+  void cancelPendingRequests();
   bool clearCache();
 
 signals:
@@ -46,4 +48,5 @@ private:
 
   // QObject parent ownership deletes the manager with this client
   QNetworkAccessManager* m_networkAccessManager;
+  QPointer<QNetworkReply> m_activeReply;
 };

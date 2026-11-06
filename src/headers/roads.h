@@ -58,6 +58,8 @@ class RoadNetwork
 public:
   // Build the adjacency list from OSM data
   bool buildRoadNetwork(const QJsonDocument& response, QString& error);
+  // Clear graph data while retaining the selected routing metric
+  void clear();
   // Find a directed route as edge references using the selected edge cost
   bool findRoute(std::size_t startNode, std::size_t endNode, RoadRoute& route) const;
   // Refresh only the adaptive travel-time weights from the current occupancy snapshot
@@ -71,6 +73,7 @@ public:
 
   // Setter methods
   void setRoutingMetric(RoutingMetric metric);
+  void setRoutingMetric(QString metric);
   void incrementOccupancy(const RoadEdgeId id);
 
 private:

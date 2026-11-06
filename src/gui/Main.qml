@@ -24,43 +24,15 @@ ApplicationWindow {
             backend: mainWindow.backend
         }
 
-        ToolBar {
-            id: toolBar
-
+        Toolbar {
             Layout.fillWidth: true
-            Layout.preferredHeight: 65
+            backend: mainWindow.backend
+            mapCanvas: mapMain
+        }
 
-            Item {
-                anchors.fill: parent
-
-                Button {
-                    id: lockButton
-
-                    checkable: true
-                    text: checked ? "Unlock view" : "Lock view"
-                    enabled: mapMain.mapReady
-                    anchors.centerIn: parent
-                    width: 100
-                    height: 40
-
-                    onToggled: {
-                        mapMain.interactionEnabled = !checked;
-                        mapMain.borderWidth = checked ? 2 : 0;
-                        if (checked)
-                            mapMain.requestBBoxData();
-                        else
-                            mainWindow.backend.clearSimulation();
-                    }
-                }
-
-                Settings {
-                    backend: mainWindow.backend
-                    mapCanvas: mapMain
-                    anchors.right: parent.right
-                    anchors.rightMargin: 10
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-            }
+        Console {
+            Layout.fillWidth: true
+            backend: mainWindow.backend
         }
     }
 }

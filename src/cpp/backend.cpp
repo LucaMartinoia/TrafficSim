@@ -1,5 +1,6 @@
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QMetaType>
 #include <QSettings>
 
 #include "backend.h"
@@ -8,22 +9,31 @@
 // In the constructor we connect the signals to the slots and load settings
 Backend::Backend(QObject* parent) : QObject(parent)
 {
+  // Register the saved coordinate type before QSettings attempts to load it
+  qRegisterMetaType<QGeoCoordinate>("QGeoCoordinate");
+
   // Route successful and failed Overpass replies through named backend handlers
   connect(&m_OSMclient, &OSMClient::requestSucceeded, this, &Backend::handleOSMRequest);
   connect(&m_OSMclient, &OSMClient::requestFailed, this, &Backend::handleOSMError);
-  // Timer-based simulation timestep
-  connect(&m_simulation.timer(), &QTimer::timeout, this, &Backend::updateSimulation);
+  // Forward simulation output and failures while keeping timer handling internal
+  connect(&m_simulation, &Simulation::carsUpdated, this, &Backend::carsUpdated);
+  connect(&m_simulation, &Simulation::updateFailed, this, &Backend::handleSimulationError);
 
   loadSettings();
 }
+
+/*
+SETTINGS METHODS
+*/
 
 // Load persisted defaults
 void Backend::loadSettings()
 {
   QSettings settings;
+  const QString locationKey = QStringLiteral("map/location");
+
   bool zoomOk = false;
-  const QGeoCoordinate location =
-      settings.value(QStringLiteral("map/location")).value<QGeoCoordinate>();
+  const QGeoCoordinate location = settings.value(locationKey).value<QGeoCoordinate>();
   const int zoom = settings.value(QStringLiteral("map/zoom"), m_defaultZoom).toInt(&zoomOk);
 
   if (zoomOk && GeoUtils::isValidMapView(location, zoom))
@@ -31,11 +41,11 @@ void Backend::loadSettings()
     m_defaultLocation = location;
     m_defaultZoom = zoom;
   }
-  else if (settings.contains(QStringLiteral("map/location")) ||
-           settings.contains(QStringLiteral("map/zoom")))
-  {
-    qWarning() << "Ignoring invalid saved map defaults";
-  }
+
+  // Print the effective settings after validating the saved map defaults
+  qInfo() << "Loaded settings:";
+  for (const QString& key : settings.allKeys())
+    qInfo() << key << "=" << settings.value(key);
 }
 
 // Setter method for the persistent settings
@@ -78,6 +88,21 @@ QVariantMap Backend::getSettings() const
 // Forward cache clearing
 bool Backend::clearCache() { return m_OSMclient.clearCache(); }
 
+/*
+SETTER METHODS
+*/
+
+// Apply a routing metric selected by the toolbar
+bool Backend::setRoutingMetric(const QString& metric)
+{
+  m_simulation.roadNetwork().setRoutingMetric(metric);
+  return true;
+  // TODO: change bool to void
+}
+
+// Forward the toolbar's target scale to the traffic model
+bool Backend::setTargetScale(double scale) { return m_simulation.traffic().setTargetScale(scale); }
+
 // Forward the UI requests
 void Backend::requestBBoxData(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight)
 {
@@ -90,25 +115,15 @@ void Backend::requestBBoxData(const QGeoCoordinate& topLeft, const QGeoCoordinat
 // Reset simulation
 void Backend::clearSimulation()
 {
+  m_OSMclient.cancelPendingRequests();
   m_simulation.clear();
   emit roadsReceived({});
   emit carsUpdated({});
 }
 
-// Advance one fixed simulation step and publish the updated map positions
-void Backend::updateSimulation()
-{
-  QString error;
-  if (!m_simulation.update(error))
-  {
-    // TODO: fix?
-    clearSimulation();
-    qWarning().noquote() << "Could not update simulation:" << error;
-    return;
-  }
-
-  emit carsUpdated(m_simulation.carPositions());
-}
+/*
+HANDLER METHODS
+*/
 
 // Valid OSM request handling
 void Backend::handleOSMRequest(const QString& query, const QJsonDocument& response)
@@ -130,4 +145,16 @@ void Backend::handleOSMRequest(const QString& query, const QJsonDocument& respon
 void Backend::handleOSMError(const QString& query, const QString& error)
 {
   qWarning().noquote() << "Overpass request failed for query:" << query << error;
+}
+
+// Stop and clear the simulation after a failed timer-driven update
+void Backend::handleSimulationError(const QString& error)
+{
+  clearSimulation();
+  qWarning().noquote() << "Could not update simulation:" << error;
+}
+
+void Backend::publishLogMessage(QString severity, QString message)
+{
+  emit logMessage(severity, message);
 }

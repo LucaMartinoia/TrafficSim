@@ -1,7 +1,10 @@
 #include <cmath>
+#include <exception>
 #include <limits>
 #include <random>
 #include <utility>
+
+#include <QDebug>
 
 #include "geo_utils.h"
 #include "traffic.h"
@@ -56,21 +59,27 @@ bool Traffic::spawnCars(const RoadNetwork& network, double dt, QString& error)
 
   // Increase the arrival rate as the active population falls below its target
   // TODO: eventually scale lambda by a random factor to increase fluctuations
-  constexpr double lambdaMin = 0.01; // Baseline arrivals per target car per unit time
-  const double scale = static_cast<double>(m_target) / 10.0;
-  const double deltaN = static_cast<double>(m_cars.size()) - static_cast<double>(m_target);
-  const double lambda = lambdaMin * m_target * std::exp(-deltaN / scale);
-  std::poisson_distribution<int> arrivalCount(m_scale * lambda * dt);
-  const int arrivals = arrivalCount(m_randomEngine);
+  constexpr double lambda0 = 0.5;
+  constexpr double recoveryTime = 10.0;
+  const double target = static_cast<double>(m_target) * m_targetScale;
+  const double deltaN = target - static_cast<double>(m_cars.size());
+  const double lambda = std::max(0.0, lambda0 + deltaN / recoveryTime);
 
-  // Add each car sampled for this timestep
+  // If more cars than target, don't spawn new cars
+  if (lambda <= 0)
+  {
+    return true;
+  }
+
+  // Sample spawn number
+  std::poisson_distribution<int> arrivalCount(lambda * dt);
+  int arrivals = arrivalCount(m_randomEngine);
+
   for (int arrival = 0; arrival < arrivals; ++arrival)
   {
     if (!addCar(network, error))
       return false;
   }
-
-  qInfo() << "Cars to spawn: " << arrivals << "on target" << m_target;
 
   return true;
 }
@@ -135,7 +144,11 @@ void Traffic::removeCars()
   std::erase_if(m_cars, [](const Car& car) { return car.arrived; });
 }
 
-// Setter methods
+/*
+SETTER METHODS
+*/
+
+// Set number of cars target from view
 void Traffic::setTargetFromBBox(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight)
 {
   // Convert the bounding-box area into the estimated moving-car population
@@ -154,8 +167,24 @@ void Traffic::setTargetFromBBox(const QGeoCoordinate& topLeft, const QGeoCoordin
   return;
 }
 
+// Target setter
 void Traffic::setTarget(int count) { m_target = count > 0 ? count : 0; }
 
-// Getter methods
+// Set the target multiplier
+bool Traffic::setTargetScale(double scale)
+{
+  if (!std::isfinite(scale) || scale < 0.1 || scale > 10.0)
+  {
+    qWarning() << "Ignoring invalid traffic scale:" << scale;
+    return false;
+  }
+
+  m_targetScale = scale;
+  return true;
+}
+
+/*
+GETTER METHODS
+*/
 const std::vector<Car>& Traffic::cars() const { return m_cars; }
 int Traffic::target() const { return m_target; }

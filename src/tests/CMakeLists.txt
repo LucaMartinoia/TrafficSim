@@ -8,6 +8,7 @@ qt_add_executable(TrafficSimTests
     ../cpp/simulation.cpp
     ../cpp/traffic.cpp
     ../headers/OSMclient.h
+    ../headers/simulation.h
 )
 
 target_include_directories(TrafficSimTests
@@ -40,6 +41,11 @@ add_test(
 add_test(
     NAME traffic_creates_car_on_reachable_route
     COMMAND TrafficSimTests trafficCreatesCarUsingReachableRoute
+)
+
+add_test(
+    NAME traffic_keeps_positive_poisson_rate_above_target
+    COMMAND TrafficSimTests trafficKeepsPositivePoissonRateAboveTarget
 )
 
 add_test(

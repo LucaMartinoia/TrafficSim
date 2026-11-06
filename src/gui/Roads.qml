@@ -13,5 +13,7 @@ MapItemView {
         required property var modelData
 
         path: modelData
+        line.width: 3
+        line.color: "#1976d2"
     }
 }

@@ -1,4 +1,7 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import QtLocation
 import QtPositioning
@@ -9,6 +12,9 @@ Item {
     required property var backend
     property bool interactionEnabled: true
     property int borderWidth: 0
+    property string addressSearchStatus: ""
+    property string queuedGeocodeQuery: ""
+    property string activeGeocodeQuery: ""
     readonly property bool mapReady: mapView.map.mapReady
     readonly property real centerLatitude: mapView.map.center.latitude
     readonly property real centerLongitude: mapView.map.center.longitude
@@ -52,9 +58,96 @@ Item {
         if (!defaults)
             return;
 
-        // Apply saved defaults only during initialization, not when settings change
-        mapView.map.center = defaults.location;
-        mapView.map.zoomLevel = defaults.zoom;
+        // Apply saved defaults through the shared map navigation function
+        root.gotoMapView(defaults.location, defaults.zoom);
+    }
+
+    function gotoMapView(center, zoomLevel) {
+        // Ignore missing or invalid geocoding results
+        if (!center || !center.isValid)
+            return;
+
+        mapView.map.center = center;
+        mapView.map.zoomLevel = zoomLevel;
+    }
+
+    function searchAddress() {
+        // Submit the current address immediately when Enter or the search button is used
+        const query = addressSearch.text.trim();
+        if (query.length < 3)
+            return;
+
+        geocodeTimer.stop();
+        root.addressSearchStatus = "Searching...";
+        root.queueGeocode(query);
+    }
+
+    function queueGeocode(query) {
+        // Keep only the newest request while a previous geocoding request is active
+        if (geocodeModel.status === GeocodeModel.Loading && query === root.activeGeocodeQuery) {
+            root.queuedGeocodeQuery = "";
+        } else {
+            root.queuedGeocodeQuery = query;
+        }
+
+        searchItems.clear();
+        if (geocodeModel.status !== GeocodeModel.Loading)
+            root.startQueuedGeocode();
+    }
+
+    function startQueuedGeocode() {
+        // Start one request at a time to avoid resetting the model during an update
+        if (geocodeModel.status === GeocodeModel.Loading || root.queuedGeocodeQuery.length === 0)
+            return;
+
+        root.activeGeocodeQuery = root.queuedGeocodeQuery;
+        root.queuedGeocodeQuery = "";
+        geocodeModel.query = root.activeGeocodeQuery;
+        geocodeModel.update();
+    }
+
+    function scheduleAddressSuggestions() {
+        // Geocode after three characters and wait briefly for the user to pause typing
+        const query = addressSearch.text.trim();
+        searchItems.clear();
+        root.addressSearchStatus = "";
+        if (query.length < 4) {
+            root.queuedGeocodeQuery = "";
+            geocodeTimer.stop();
+            return;
+        }
+
+        geocodeTimer.restart();
+    }
+
+    function selectSearchItem(index) {
+        // Center the map on the selected geocoding result
+        const item = searchItems.get(index);
+        const location = geocodeModel.get(item.resultIndex);
+        root.gotoMapView(location.coordinate, mapView.map.zoomLevel);
+        addressSearch.text = location.address.text || item.displayText;
+        searchItems.clear();
+        root.queuedGeocodeQuery = "";
+        root.addressSearchStatus = "";
+    }
+
+    function showGeocodingResults() {
+        // Display results only if they still match the text currently being edited
+        if (root.activeGeocodeQuery !== addressSearch.text.trim())
+            return;
+
+        searchItems.clear();
+        const resultCount = Math.min(geocodeModel.count, 4);
+        for (let index = 0; index < resultCount; ++index) {
+            const location = geocodeModel.get(index);
+            const label = location.address.text || location.coordinate.latitude.toFixed(5) + ", " + location.coordinate.longitude.toFixed(5);
+            searchItems.append({
+                displayText: label,
+                resultIndex: index
+            });
+        }
+
+        root.addressSearchStatus = resultCount === 0 ? "No matching address found." : "";
     }
 
     Component.onCompleted: root.gotoDefaultMapView()
@@ -78,6 +171,56 @@ Item {
             name: "osm.mapping.custom.host"
             value: "https://tile.openstreetmap.org/"
         }
+
+        PluginParameter {
+            name: "osm.useragent"
+            value: "TrafficSim/0.1"
+        }
+
+        PluginParameter {
+            // Use the plugin's built-in providers instead of querying its remote repository
+            name: "osm.mapping.providersrepository.disabled"
+            value: true
+        }
+    }
+
+    GeocodeModel {
+        id: geocodeModel
+
+        plugin: mapPlugin
+        autoUpdate: false
+        limit: 4
+
+        onStatusChanged: {
+            if (status === GeocodeModel.Ready) {
+                if (root.queuedGeocodeQuery.length > 0) {
+                    root.startQueuedGeocode();
+                    return;
+                }
+
+                root.showGeocodingResults();
+            } else if (status === GeocodeModel.Error) {
+                if (root.queuedGeocodeQuery.length > 0) {
+                    root.startQueuedGeocode();
+                    return;
+                }
+
+                if (root.activeGeocodeQuery === addressSearch.text.trim())
+                    root.addressSearchStatus = errorString || "Address search failed.";
+            }
+        }
+    }
+
+    ListModel {
+        id: searchItems
+    }
+
+    Timer {
+        id: geocodeTimer
+
+        interval: 300
+        repeat: false
+        onTriggered: root.queueGeocode(addressSearch.text.trim())
     }
 
     MapView {
@@ -115,5 +258,105 @@ Item {
         function onCarsUpdated(positions) {
             cars.positions = positions;
         }
+    }
+
+    Rectangle {
+        id: addressSearchPanel
+
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.leftMargin: 16
+        anchors.topMargin: 16
+        width: 360
+        implicitHeight: searchColumn.implicitHeight + 16
+        height: implicitHeight
+        radius: 4
+        color: "#EFFFFFFF"
+        border.color: "#60000000"
+        z: 2
+
+        ColumnLayout {
+            id: searchColumn
+
+            anchors.fill: parent
+            anchors.margins: 8
+            spacing: 4
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                TextField {
+                    id: addressSearch
+
+                    Layout.fillWidth: true
+                    placeholderText: "Search for an address"
+                    selectByMouse: true
+
+                    ToolTip.visible: root.addressSearchStatus.length > 0 && hovered
+                    ToolTip.text: root.addressSearchStatus
+                    ToolTip.delay: 300
+
+                    onTextEdited: {
+                        root.scheduleAddressSuggestions();
+                    }
+                    onAccepted: root.searchAddress()
+                }
+
+                Button {
+                    text: "\u2192"
+                    enabled: addressSearch.text.trim().length >= 3
+                    Accessible.name: "Search address"
+                    onClicked: root.searchAddress()
+                }
+            }
+
+            ListView {
+                id: searchResults
+
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(count, 4) * 40
+                visible: count > 0
+                clip: true
+                model: searchItems
+                spacing: 1
+
+                delegate: ItemDelegate {
+                    id: resultDelegate
+
+                    required property string displayText
+                    required property int resultIndex
+                    required property int index
+
+                    width: ListView.view.width
+                    height: 40
+                    text: displayText
+                    highlighted: hovered
+                    onClicked: root.selectSearchItem(resultDelegate.index)
+                }
+            }
+        }
+    }
+
+    Button {
+        id: defaultViewButton
+
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: 16
+        anchors.bottomMargin: 16
+        width: 120
+        height: 40
+        z: 2
+        text: "Default view"
+        enabled: !!root.backend
+
+        // Keep the map control visible while allowing map details through its background
+        background: Rectangle {
+            radius: 4
+            color: defaultViewButton.down ? "#B3000000" : "#80000000"
+            border.color: "#80FFFFFF"
+        }
+
+        onClicked: root.gotoDefaultMapView()
     }
 }

@@ -200,14 +200,19 @@ private slots:
     )json";
 
     Simulation simulation;
-    QString error;
-    QVERIFY(!simulation.update(error));
-    QVERIFY(!error.isEmpty());
+    QSignalSpy carsUpdatedSpy(&simulation, &Simulation::carsUpdated);
+    QSignalSpy updateFailedSpy(&simulation, &Simulation::updateFailed);
+    QVERIFY(carsUpdatedSpy.isValid());
+    QVERIFY(updateFailedSpy.isValid());
+
+    simulation.update();
+    QCOMPARE(updateFailedSpy.count(), 1);
     QCOMPARE(simulation.time(), 0.0);
 
     const QGeoCoordinate topLeft(44.01, 8.0);
     const QGeoCoordinate bottomRight(44.0, 8.01);
     simulation.traffic().setTargetFromBBox(topLeft, bottomRight);
+    QString error;
     QVERIFY2(simulation.start(QJsonDocument::fromJson(json), error), qPrintable(error));
     QCOMPARE(simulation.time(), 0.0);
     QCOMPARE(simulation.timeStep(), 0.05);
@@ -217,15 +222,18 @@ private slots:
     const int expectedCars = static_cast<int>(std::round(
         GeoUtils::area(topLeft, bottomRight) * 2.0e-4 * 0.7 * 0.1));
     QCOMPARE(targetCars, expectedCars);
-    simulation.traffic().setTarget(10000);
-    QVERIFY2(simulation.update(error), qPrintable(error));
+    // Add one deterministic test car and disable random arrivals for this lifecycle check
+    simulation.traffic().setTarget(0);
+    QVERIFY2(simulation.traffic().addCar(simulation.roadNetwork(), error), qPrintable(error));
+    simulation.update();
     QCOMPARE(simulation.time(), 0.05);
+    QCOMPARE(carsUpdatedSpy.count(), 1);
     const QVariantList initialPositions = simulation.carPositions();
     QVERIFY(!initialPositions.isEmpty());
-    QVERIFY(initialPositions.size() < simulation.traffic().target());
 
-    QVERIFY2(simulation.update(error), qPrintable(error));
+    simulation.update();
     QCOMPARE(simulation.time(), 0.1);
+    QCOMPARE(carsUpdatedSpy.count(), 2);
     const QVariantList movedPositions = simulation.carPositions();
     QVERIFY(!movedPositions.isEmpty());
     const QGeoCoordinate initialPosition = initialPositions.first().value<QGeoCoordinate>();
@@ -234,8 +242,8 @@ private slots:
 
     // Clear the simulation and verify that it cannot advance without a network.
     simulation.clear();
-    QVERIFY(!simulation.update(error));
-    QVERIFY(!error.isEmpty());
+    simulation.update();
+    QCOMPARE(updateFailedSpy.count(), 2);
     QCOMPARE(simulation.time(), 0.0);
   }
 
@@ -266,12 +274,56 @@ private slots:
     QCOMPARE(traffic.target(), 4);
     traffic.setTarget(-1);
     QCOMPARE(traffic.target(), 0);
+    QVERIFY(traffic.setTargetScale(0.1));
+    QVERIFY(traffic.setTargetScale(10.0));
+    QVERIFY(!traffic.setTargetScale(0.0));
+    QVERIFY(!traffic.setTargetScale(10.1));
+    QCOMPARE(traffic.target(), 0);
     error = QStringLiteral("previous error");
     QVERIFY2(traffic.addCar(network, error), qPrintable(error));
     QVERIFY(error.isEmpty());
     QCOMPARE(network.nodes()[0].edges[0].lanes, 1);
     QCOMPARE(traffic.cars().size(), std::size_t(1));
     QCOMPARE(traffic.cars().front().route.size(), std::size_t(1));
+  }
+
+  void trafficKeepsPositivePoissonRateAboveTarget()
+  {
+    // Build a reachable road so the test can place the population above its target
+    const QByteArray json = R"json(
+      {
+        "elements": [
+          {
+            "type": "way",
+            "tags": {"highway": "residential", "oneway": "yes"},
+            "geometry": [
+              {"lat": 44.0, "lon": 8.0},
+              {"lat": 44.0, "lon": 8.001}
+            ]
+          }
+        ]
+      }
+    )json";
+
+    RoadNetwork network;
+    QString error;
+    QVERIFY2(network.buildRoadNetwork(QJsonDocument::fromJson(json), error), qPrintable(error));
+
+    // Five cars above the target exercise the lower-bound arrival rate
+    Traffic traffic;
+    traffic.setTarget(1);
+    for (int car = 0; car < 6; ++car)
+      QVERIFY2(traffic.addCar(network, error), qPrintable(error));
+
+    // The positive rate should sample safely even when the population exceeds its target
+    QCOMPARE(traffic.cars().size(), std::size_t(6));
+    QVERIFY2(traffic.spawnCars(network, 0.05, error), qPrintable(error));
+    QVERIFY(traffic.cars().size() >= std::size_t(6));
+
+    // A zero timestep is a no-op and must not construct the distribution
+    const std::size_t carsBeforeZeroStep = traffic.cars().size();
+    QVERIFY2(traffic.spawnCars(network, 0.0, error), qPrintable(error));
+    QCOMPARE(traffic.cars().size(), carsBeforeZeroStep);
   }
 };
 

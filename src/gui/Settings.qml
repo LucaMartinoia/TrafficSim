@@ -48,7 +48,7 @@ Item {
         onVisibleChanged: {
             // Refresh the form whenever the settings window is opened
             if (visible && root.backend) {
-                const mapView = root.backend.getDefaultMapView();
+                const mapView = root.backend.getSettings();
                 if (mapView) {
                     latitudeField.text = Number(mapView.location.latitude).toFixed(6);
                     longitudeField.text = Number(mapView.location.longitude).toFixed(6);
@@ -148,7 +148,7 @@ Item {
                     enabled: !!root.backend
                     onClicked: {
                         // Ask the backend to clear OSM data and report the result
-                        statusLabel.text = root.backend.clearOSMCache() ? "Cached OSM data cleared." : "Could not clear cached OSM data. See the application log.";
+                        statusLabel.text = root.backend.clearCache() ? "Cached OSM data cleared." : "Could not clear cached OSM data. See the application log.";
                     }
                 }
 
@@ -162,7 +162,7 @@ Item {
                     enabled: !!root.backend && root.isValidNumber(latitudeField.text, -90, 90) && root.isValidNumber(longitudeField.text, -180, 180)
                     onClicked: {
                         const center = QtPositioning.coordinate(Number(latitudeField.text), Number(longitudeField.text));
-                        if (root.backend.setDefaultMapView(center, zoomField.value)) {
+                        if (root.backend.saveSettings(center, zoomField.value)) {
                             statusLabel.text = "Default map view saved.";
                         } else {
                             statusLabel.text = "Could not save the default map view. See the application log.";

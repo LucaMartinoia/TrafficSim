@@ -35,6 +35,8 @@ public:
   // Setter methods
   void setTargetFromBBox(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight);
   void setTarget(int count);
+  // Scale the effective target without changing the bounding-box target
+  bool setTargetScale(double scale);
 
   // Getter methods
   const std::vector<Car>& cars() const;
@@ -44,5 +46,5 @@ private:
   std::mt19937 m_randomEngine{std::random_device{}()};
   std::vector<Car> m_cars;
   int m_target = 1;
-  int m_scale = 1;
+  double m_targetScale = 1.0;
 };

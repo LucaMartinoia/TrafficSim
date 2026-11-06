@@ -2,8 +2,10 @@
 
 #include "simulation.h"
 
-Simulation::Simulation()
+Simulation::Simulation(QObject* parent) : QObject(parent)
 {
+  // Keep the timer-driven simulation lifecycle inside the simulation engine
+  connect(&m_timer, &QTimer::timeout, this, &Simulation::update);
   m_timer.setInterval(static_cast<int>(m_timeStep * 1000.0));
   m_timer.setTimerType(Qt::PreciseTimer);
 }
@@ -18,41 +20,28 @@ bool Simulation::start(const QJsonDocument& response, QString& error)
   m_started = true;
   m_timer.start();
 
-  // Log the prepared routing graphs
-  const auto& nodes = m_roadNetwork.nodes();
-  qInfo() << "Built road network with" << m_roadNetwork.nodes().size() << "nodes.";
-  for (std::size_t nodeIndex = 0; nodeIndex < nodes.size(); ++nodeIndex)
-  {
-    const RoadNode& node = nodes[nodeIndex];
-    qDebug().noquote() << QStringLiteral("  Node %1 (%2, %3)")
-                              .arg(QString::number(static_cast<qulonglong>(nodeIndex)),
-                                   QString::number(node.coordinate.latitude(), 'f', 6),
-                                   QString::number(node.coordinate.longitude(), 'f', 6));
-    for (const RoadEdge& edge : node.edges)
-    {
-      qDebug().noquote() << QStringLiteral("    -> %1: %2 m, %3 s")
-                                .arg(QString::number(static_cast<qulonglong>(edge.destination)),
-                                     QString::number(edge.length, 'f', 1),
-                                     QString::number(edge.adaptiveTime, 'f', 1));
-    }
-  }
-
   return true;
 }
 
-// Single update step
-bool Simulation::update(QString& error)
+// Advance one simulation step and notify observers of its outcome
+void Simulation::update()
 {
+  QString error;
+
   // Refuse to advance until a road network has been loaded successfully.
   if (!m_started)
   {
     error = QStringLiteral("Simulation has not been started.");
-    return false;
+    emit updateFailed(error);
+    return;
   }
 
   // Delegate stochastic car arrivals to the traffic model
   if (!m_traffic.spawnCars(m_roadNetwork, m_timeStep, error))
-    return false;
+  {
+    emit updateFailed(error);
+    return;
+  }
 
   // Reset the occupancy list
   m_roadNetwork.resetOccupancy();
@@ -69,7 +58,7 @@ bool Simulation::update(QString& error)
   // Integrate simulation time.
   m_time += m_timeStep;
 
-  return true;
+  emit carsUpdated(carPositions());
 }
 
 // Convert the current active cars into coordinates consumable by QML
@@ -85,7 +74,7 @@ QVariantList Simulation::carPositions() const
 // Reset the simulation
 void Simulation::clear()
 {
-  m_roadNetwork = RoadNetwork{};
+  m_roadNetwork.clear();
   m_traffic = Traffic{};
   m_time = 0.0;
   m_started = false;
@@ -95,5 +84,5 @@ void Simulation::clear()
 // Getter methods
 double Simulation::timeStep() const { return m_timeStep; }
 double Simulation::time() const { return m_time; }
-QTimer& Simulation::timer() { return m_timer; }
 Traffic& Simulation::traffic() { return m_traffic; }
+RoadNetwork& Simulation::roadNetwork() { return m_roadNetwork; }

@@ -106,10 +106,21 @@ void OSMClient::sendQueryToEndpoint(const QString& query, std::size_t endpointIn
   // Percent-encode the query for the form-encoded HTTP body
   const QByteArray postData = QByteArrayLiteral("data=") + QUrl::toPercentEncoding(query);
 
-  // Store request state on the reply so overlapping queries remain independent
+  // Store request state on the active reply for the retry chain
   QNetworkReply* reply = m_networkAccessManager->post(request, postData);
   reply->setProperty("query", query);
   reply->setProperty("endpointIndex", static_cast<int>(endpointIndex));
+  m_activeReply = reply;
+}
+
+// Abort the active reply before its completion callback can continue the retry chain
+void OSMClient::cancelPendingRequests()
+{
+  QNetworkReply* reply = m_activeReply.data();
+  m_activeReply.clear();
+
+  if (reply)
+    reply->abort();
 }
 
 // Compute file path
@@ -238,20 +249,31 @@ void OSMClient::saveCache(const QString& query, const QByteArray& responseBody)
 // Callback to the async HTTPS request
 void OSMClient::handleResponse(QNetworkReply* reply)
 {
-  // Retrieve this reply's query, including when requests overlap
+  // Ignore replies that are no longer part of the active request chain
+  if (m_activeReply != reply)
+  {
+    reply->deleteLater();
+    return;
+  }
+  m_activeReply.clear();
+
+  // Retrieve this reply's query and endpoint for response handling
   const QString query = reply->property("query").toString();
   const std::size_t endpointIndex =
       static_cast<std::size_t>(reply->property("endpointIndex").toInt());
 
   const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
-  // Check network and HTTP errors; deleteLater() safely defers reply cleanup
-  if (reply->error() != QNetworkReply::NoError || statusCode < 200 || statusCode >= 300)
+  // Reject failed or closed replies before attempting to read their response body
+  if (reply->error() != QNetworkReply::NoError || statusCode < 200 || statusCode >= 300 ||
+      !reply->isOpen() || !reply->isReadable())
   {
     QString error = reply->errorString();
 
     if (statusCode != 0)
       error = QStringLiteral("HTTP %1: %2").arg(statusCode).arg(error);
+    else if (reply->error() == QNetworkReply::NoError)
+      error = QStringLiteral("Response device closed before it could be read.");
 
     // Log the failed instance and release its reply
     qWarning().noquote() << "Overpass endpoint failed:" << ENDPOINTS[endpointIndex].toString()
