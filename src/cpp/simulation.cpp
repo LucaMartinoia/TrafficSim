@@ -25,6 +25,7 @@ void Simulation::start(const QJsonDocument& response)
 
   m_started = true;
   m_timer.start();
+  emit statusUpdated(static_cast<int>(m_traffic.cars().size()), m_time);
 }
 
 // Advance one simulation step and notify observers of its outcome
@@ -48,10 +49,8 @@ void Simulation::update()
   // Integrate simulation time.
   m_time += m_timeStep;
 
-  if (++m_stepCount % 40 == 0) // 40 * 0.05 = 2 seconds
-    qInfo() << "Active cars:" << m_traffic.cars().size();
-
   emit carsUpdated(carPositions());
+  emit statusUpdated(static_cast<int>(m_traffic.cars().size()), m_time);
 }
 
 // Convert the current active cars into coordinates consumable by QML
@@ -77,6 +76,7 @@ void Simulation::clear()
   // Publish the cleared state
   emit roadsReceived({});
   emit carsUpdated({});
+  emit statusUpdated(0, 0.0);
 }
 
 void Simulation::setBBox(const std::pair<QGeoCoordinate, QGeoCoordinate>& bbox) { m_bbox = bbox; }

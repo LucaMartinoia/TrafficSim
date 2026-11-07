@@ -34,6 +34,7 @@ signals:
   // Signals are Qt main async mechanism to send callbacks between modules and GUI
   void roadsReceived(const QVariantList& paths);
   void carsUpdated(const QVariantList& positions);
+  void simulationStatus(int activeCarCount, double elapsedSeconds);
   void logMessage(QString severity, QString message);
 
 private slots:

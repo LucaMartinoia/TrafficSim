@@ -166,8 +166,10 @@ void Traffic::setTargetFromBBox(const std::pair<QGeoCoordinate, QGeoCoordinate>&
 
   const int target = std::max(2, static_cast<int>(estimatedCars));
 
-  qInfo() << "Area:" << area << "Ways:" << waysCount << "Density factor:" << factor
+  /*
+    qInfo() << "Area:" << area << "Ways:" << waysCount << "Density factor:" << factor
           << "Target cars:" << target;
+  */
 
   setTarget(target);
 }

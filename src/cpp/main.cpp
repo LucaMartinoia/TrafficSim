@@ -1,4 +1,5 @@
 #include <QGuiApplication>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QVariant>
@@ -45,9 +46,11 @@ void messageHandler(QtMsgType type, const QMessageLogContext& context, const QSt
 int main(int argc, char* argv[])
 {
   // Set QML-item style
-  QQuickStyle::setStyle("Basic");
+  QQuickStyle::setStyle("Fusion");
 
   QGuiApplication app(argc, argv);
+  // Use the application icon for every window, including the Settings dialog
+  QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/TrafficSim.ico")));
   QCoreApplication::setOrganizationName(QStringLiteral("TrafficSim"));
   QCoreApplication::setApplicationName(QStringLiteral("LucaMartinoia"));
 

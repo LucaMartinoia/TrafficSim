@@ -160,7 +160,7 @@ bool OSMClient::loadCache(const QString& query)
 
   if (!cacheFile.open(QIODevice::ReadOnly))
   {
-    qWarning() << "Could not load cached roads data:" << cachePath
+    qWarning() << "Could not load cached roads data:"
                << (cacheFile.exists() ? cacheFile.errorString()
                                       : QStringLiteral("File does not exist"));
     return false;

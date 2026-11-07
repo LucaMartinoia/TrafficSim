@@ -14,6 +14,8 @@ Backend::Backend(QObject* parent) : QObject(parent)
   // Forward simulation state updates through the backend interface exposed to QML
   connect(&m_simulation, &Simulation::roadsReceived, this, &Backend::roadsReceived);
   connect(&m_simulation, &Simulation::carsUpdated, this, &Backend::carsUpdated);
+  // Forward timer-driven simulation status to the QML interface
+  connect(&m_simulation, &Simulation::statusUpdated, this, &Backend::simulationStatus);
 
   loadSettings();
 }

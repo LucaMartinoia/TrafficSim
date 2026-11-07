@@ -41,6 +41,7 @@ public slots:
 signals:
   void roadsReceived(const QVariantList& paths);
   void carsUpdated(const QVariantList& positions);
+  void statusUpdated(int activeCarCount, double elapsedSeconds);
 
 private:
   RoadNetwork m_roadNetwork;

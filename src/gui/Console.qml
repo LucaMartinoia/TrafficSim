@@ -2,38 +2,42 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-Rectangle {
+Item {
     id: consolePanel
 
     // Receive the backend that publishes log messages
     required property var backend
 
-    Layout.preferredHeight: 150
+    opacity: 0.8
 
-    color: "#202020"
-
-    ScrollView {
+    ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 8
+        anchors.margins: 4
+        spacing: 4
 
-        TextArea {
-            id: logConsole
+        Label {
+            text: "Console"
+        }
 
-            readOnly: true
-            selectByMouse: true
-            wrapMode: TextArea.Wrap
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
 
-            font.family: "Consolas"
-            font.pixelSize: 12
-            color: "#dddddd"
+            TextArea {
+                id: logConsole
 
-            background: null
+                readOnly: true
+                selectByMouse: true
+                wrapMode: TextArea.Wrap
+                placeholderText: "Console output will appear here"
 
-            Connections {
-                target: consolePanel.backend
+                Connections {
+                    target: consolePanel.backend
 
-                function onLogMessage(severity, message) {
-                    logConsole.append("[" + severity + "] " + message);
+                    function onLogMessage(severity, message) {
+                        logConsole.append("[" + severity + "] " + message);
+                    }
                 }
             }
         }

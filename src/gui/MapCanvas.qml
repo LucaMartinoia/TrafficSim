@@ -10,11 +10,14 @@ Item {
     id: root
 
     required property var backend
+    required property Theme theme
     property bool interactionEnabled: true
     property int borderWidth: 0
     property string addressSearchStatus: ""
     property string queuedGeocodeQuery: ""
     property string activeGeocodeQuery: ""
+    property int activeCarCount: 0
+    property real elapsedSeconds: 0
     readonly property bool mapReady: mapView.map.mapReady
     readonly property real centerLatitude: mapView.map.center.latitude
     readonly property real centerLongitude: mapView.map.center.longitude
@@ -69,6 +72,20 @@ Item {
 
         mapView.map.center = center;
         mapView.map.zoomLevel = zoomLevel;
+    }
+
+    function formatElapsedTime(seconds) {
+        const totalSeconds = Math.floor(seconds);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const remainingSeconds = totalSeconds % 60;
+        const formattedMinutes = String(minutes).padStart(2, "0");
+        const formattedSeconds = String(remainingSeconds).padStart(2, "0");
+
+        if (hours > 0)
+            return String(hours).padStart(2, "0") + ":" + formattedMinutes + ":" + formattedSeconds;
+
+        return formattedMinutes + ":" + formattedSeconds;
     }
 
     function searchAddress() {
@@ -258,9 +275,49 @@ Item {
         function onCarsUpdated(positions) {
             cars.positions = positions;
         }
+
+        function onSimulationStatus(activeCarCount, elapsedSeconds) {
+            root.activeCarCount = activeCarCount;
+            root.elapsedSeconds = elapsedSeconds;
+        }
     }
 
     Rectangle {
+        id: statusPanel
+
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: 16
+        anchors.bottomMargin: 16
+        width: statusRow.implicitWidth
+        height: statusRow.implicitHeight
+        z: 2
+
+        color: "#CCFFFFFF"
+        radius: 4
+
+        RowLayout {
+            id: statusRow
+
+            spacing: 24
+
+            Label {
+                text: "Cars: " + root.activeCarCount
+                color: root.theme.mapText
+                font.bold: true
+                padding: 8
+            }
+
+            Label {
+                text: "Time: " + root.formatElapsedTime(root.elapsedSeconds)
+                color: root.theme.mapText
+                font.bold: true
+                padding: 8
+            }
+        }
+    }
+
+    Item {
         id: addressSearchPanel
 
         // Keep address search controls locked with map interaction
@@ -272,9 +329,6 @@ Item {
         width: 360
         implicitHeight: searchColumn.implicitHeight + 16
         height: implicitHeight
-        radius: 4
-        color: "#EFFFFFFF"
-        border.color: "#60000000"
         z: 2
 
         ColumnLayout {
@@ -282,45 +336,68 @@ Item {
 
             anchors.fill: parent
             anchors.margins: 8
-            spacing: 4
+            spacing: 0
 
             RowLayout {
-                Layout.fillWidth: true
+                id: searchRow
 
-                TextField {
-                    id: addressSearch
+                Layout.fillWidth: true
+                spacing: 0
+
+                Item {
+                    id: searchEntry
 
                     Layout.fillWidth: true
-                    placeholderText: "Search for an address"
-                    selectByMouse: true
+                    implicitHeight: addressSearch.implicitHeight + 10
 
-                    ToolTip.visible: root.addressSearchStatus.length > 0 && hovered
-                    ToolTip.text: root.addressSearchStatus
-                    ToolTip.delay: 300
+                    TextField {
+                        id: addressSearch
 
-                    onTextEdited: {
-                        root.scheduleAddressSuggestions();
+                        anchors.fill: parent
+                        rightPadding: searchButton.width + 8
+                        leftPadding: 8
+                        placeholderText: "Search for an address"
+                        selectByMouse: true
+
+                        ToolTip.visible: root.addressSearchStatus.length > 0 && hovered
+                        ToolTip.text: root.addressSearchStatus
+                        ToolTip.delay: 300
+
+                        onTextEdited: {
+                            root.scheduleAddressSuggestions();
+                        }
+                        onAccepted: root.searchAddress()
                     }
-                    onAccepted: root.searchAddress()
-                }
 
-                Button {
-                    text: "\u2192"
-                    enabled: addressSearch.text.trim().length >= 3
-                    Accessible.name: "Search address"
-                    onClicked: root.searchAddress()
+                    ToolButton {
+                        id: searchButton
+
+                        anchors.right: parent.right
+                        anchors.rightMargin: 4
+                        anchors.verticalCenter: parent.verticalCenter
+                        enabled: addressSearch.text.trim().length >= 3
+                        Accessible.name: "Search address"
+                        ToolTip.text: "Search address"
+                        ToolTip.visible: hovered
+                        icon.source: "qrc:/icons/circle-chevron-right-solid-full.svg"
+                        icon.width: 26
+                        icon.height: 26
+                        icon.color: root.theme.controlIcon
+                        background: null
+                        onClicked: root.searchAddress()
+                    }
                 }
             }
 
             ListView {
                 id: searchResults
 
-                Layout.fillWidth: true
+                Layout.preferredWidth: searchEntry.width
                 Layout.preferredHeight: Math.min(count, 4) * 40
                 visible: count > 0
                 clip: true
                 model: searchItems
-                spacing: 1
+                spacing: 0
 
                 delegate: ItemDelegate {
                     id: resultDelegate
@@ -339,26 +416,26 @@ Item {
         }
     }
 
-    Button {
+    ToolButton {
         id: defaultViewButton
 
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: 16
         anchors.bottomMargin: 16
-        width: 120
-        height: 40
+        width: 60
+        height: 60
         z: 2
-        text: "Default view"
+        Accessible.name: "Default view"
+        ToolTip.text: "Default view"
+        ToolTip.visible: hovered
+        icon.source: "qrc:/icons/location-crosshairs-solid-full.svg"
+        icon.width: 60
+        icon.height: 60
+        icon.color: root.theme.mapIcon
+        background: null
         // Keep default navigation locked with map interaction
         enabled: !!root.backend && root.interactionEnabled
-
-        // Keep the map control visible while allowing map details through its background
-        background: Rectangle {
-            radius: 4
-            color: defaultViewButton.down ? "#B3000000" : "#80000000"
-            border.color: "#80FFFFFF"
-        }
 
         onClicked: root.gotoDefaultMapView()
     }

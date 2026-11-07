@@ -14,25 +14,50 @@ ApplicationWindow {
 
     title: "Traffic Simulator"
 
-    ColumnLayout {
+    Theme {
+        id: appTheme
+    }
+
+    // Apply the shared palette directly to Fusion controls
+    palette.window: appTheme.window
+    palette.windowText: appTheme.windowText
+    palette.base: appTheme.base
+    palette.alternateBase: appTheme.alternateBase
+    palette.text: appTheme.text
+    palette.button: appTheme.button
+    palette.buttonText: appTheme.buttonText
+    palette.highlight: appTheme.highlight
+    palette.highlightedText: appTheme.highlightedText
+    palette.placeholderText: appTheme.placeholderText
+
+    Pane {
         anchors.fill: parent
-        spacing: 0
+        padding: 0
+        background: null
+        font.pixelSize: appTheme.fontSize
 
-        MapCanvas {
-            id: mapMain
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 0
 
-            backend: mainWindow.backend
-        }
+            // Let the map use all space not needed by the bottom toolbar
+            MapCanvas {
+                id: mapMain
 
-        Toolbar {
-            Layout.fillWidth: true
-            backend: mainWindow.backend
-            mapCanvas: mapMain
-        }
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.minimumHeight: 0
+                backend: mainWindow.backend
+                theme: appTheme
+            }
 
-        Console {
-            Layout.fillWidth: true
-            backend: mainWindow.backend
+            Toolbar {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 200
+                backend: mainWindow.backend
+                mapCanvas: mapMain
+                theme: appTheme
+            }
         }
     }
 }

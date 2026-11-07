@@ -1,58 +1,67 @@
 # TrafficSim
 
-TrafficSim is a Qt 6 traffic simulator. Its C++ backend retrieves road data from OpenStreetMap's Overpass API, builds a directed road graph, and provides the beginnings of a traffic model. The Qt Quick/QML interface displays the map and road geometry.
+TrafficSim is an experimental traffic simulator and a learning project for C++, Qt Quick, and QML. It loads real road layouts from OpenStreetMap, builds a routable road network, and animates simulated cars on a map.
 
-## Project setup
+The project is intentionally focused on exploring how a desktop application can connect a QML interface, geographic data, networking, and a C++ simulation model. Its traffic behavior is a simplified model, not a prediction of real-world traffic.
 
-The project is built with CMake and requires Qt 6. Install the Qt components listed in the root `CMakeLists.txt` and a compatible C++ toolchain. In VS Code, install the **CMake Tools** and **C/C++** extensions, open the repository folder, and select a CMake kit when prompted.
+## What you can do
 
-Use the VS Code Command Palette (`Ctrl+Shift+P`) to select a CMake variant, such as Debug or Release, and use the CMake status bar or Command Palette to configure and build the project.
+- Explore a map and search for an address
+- Save and restore a default map location and zoom level
+- Load roads for the visible map area and view them on the map
+- Start and stop a simulation with cars following routes through the road network
+- Choose a routing preference and adjust the target traffic level
+- Read application and simulation messages in the console
+- Reuse cached road data or clear the cache from Settings
 
-## Application flow
+## How the application works
 
-1. The user pans/zooms to a desired map area and clicks **Lock view**.
-2. `MapCanvas` converts the visible map corners into a geographic bounding box. `Backend` expands each side by five percent of the visible latitude/longitude span and dispatches the request to `OverpassClient`.
-3. `OverpassClient` sends the Overpass query, validates responses, and caches valid JSON under Qt's writable `AppDataLocation` in a `roads_data` directory, using a separate file per query.
-4. On success, the backend builds the full `RoadNetwork`, dispatches road paths to the map, and starts a 50 ms `QTimer`. Each timer event advances one fixed simulation step and sends active car coordinates to the QML map.
-5. On request failure, the backend logs the error. The QML map receives valid way geometry through the backend's `roadsReceived` signal.
+1. **Choose an area.** The map opens at the saved default view, if one is available. You can pan and zoom, search for an address, or return to the saved view.
+2. **Request road data.** When you start a simulation, the interface sends the currently visible map bounds to the C++ backend. The road-data client checks its local cache and otherwise requests road geometry from the OpenStreetMap Overpass API. If an endpoint is unavailable, it tries another one.
+3. **Prepare the road network.** The backend validates the response and turns the road geometry into a directed network. Road direction and other available road properties are used to prepare routes and travel estimates. The road layout is sent to the map for display.
+4. **Run the simulation.** The simulation creates trips between reachable points in the network, moves cars along their routes, and tracks road usage. The selected routing preference and traffic target influence the simulation.
+5. **Update the map.** The backend sends car positions and road data to the QML interface, which updates the map and console. Stopping clears the current simulation and cancels any in-progress road request.
 
-The Overpass service and a network connection are required on a cache miss. Remove the corresponding JSON file in the app data cache directory to fetch that query again.
+## Main components
 
-## Road network
+- **QML interface (`src/gui`)** — map, search and navigation controls, toolbar, settings, and console
+- **`Backend`** — connects the interface to road-data requests, settings, and the simulation
+- **`OSMClient`** — requests and caches road data from Overpass
+- **`RoadNetwork`** — validates road geometry, represents roads as a routable network, and finds routes
+- **`Simulation` and `Traffic`** — manage the simulation lifecycle, trips, car movement, and road usage
+- **`Settings`** — stores the default map view using Qt application settings
+- **`GeoUtils`** — shared geographic validation and coordinate operations
 
-`RoadNetwork::buildFromOverpassResponse` reads Overpass way geometry and creates a full adjacency list:
+## Build
 
-- `RoadNode` stores a Qt `QGeoCoordinate` and outgoing edges.
-- `RoadEdge::destination` is the index of the next node; its source is the node whose adjacency list contains it.
-- Each full edge stores segment length in meters, maximum velocity in meters per second, and estimated travel time in seconds. OSM `maxspeed` values in km/h (or unitless values) and mph are converted to meters per second; if a usable numeric value is absent, the parser assumes 50 km/h and converts it to meters per second.
-- Coordinates shared between ways are merged. OSM `oneway` tags and supported implied one-way cases set edge direction.
+The project uses CMake and requires CMake 3.20 or newer, a C++20-compatible compiler, and Qt 6 with the Quick, QML, Quick Controls 2, Graphs, Location, Positioning, and Network modules. Building the tests also requires Qt Test.
 
-Each edge stores its static `length`, `maxVelocity`, and `minTime`, plus a dynamic `travelTime`. `RoutingMetric::Distance` selects length, `TravelTime` selects free-flow time, and `AdaptiveTime` selects the adaptive estimate. Route finding uses Dijkstra's algorithm with the selected edge cost. Adaptive-time routing currently uses free-flow travel time; occupancy-dependent costs are not implemented yet.
-
-## Traffic model and geographic utilities
-
-`RoadEdgeId` identifies an outgoing edge by source node index and local edge index. `RoadRoute` stores these references so a car can access the current segment directly. `RoadNetwork::findRoute` takes endpoint node indices and reports whether a directed route was found using the network's selected routing metric.
-
-`Car` stores its route, current route segment and progress in meters, current `QGeoCoordinate`, velocity, and arrival state. Traffic movement carries remaining time across edge boundaries, updates geographic positions, and records edge occupancy. `Simulation::update` advances by 0.05 seconds and spawns cars up to its active-car target. The backend timer and QML event handling run on the GUI thread; keep each update small so map interaction stays responsive.
-
-`GeoUtils` wraps Qt's `QGeoCoordinate` geodesic operations to calculate distance in meters and a coordinate at a distance along a segment.
-
-## Build and run tests in VS Code
-
-Tests use Qt Test and CTest. The test target and test registration are kept in `src/tests/CMakeLists.txt`, which the root CMake project includes when testing is enabled.
-
-1. In VS Code, use the **CMake: Build Target** command and select `TrafficSimTests`.
-2. Open the **CMake** view, expand **Tests**, and run a test or the full test suite.
-3. Use the test results view to inspect failures and output.
-
-The tests cover road parsing, coordinate validation, route-based car creation, fixed-step simulation movement, and `overpass_default_query`. The Overpass integration test issues a live request and needs network access, so it can fail when the service is unavailable.
-
-## Qt deployment
-
-For a self-contained Windows Release build, use the `windeployqt` tool from the Qt installation that matches the selected compiler and build:
+If CMake cannot find your Qt installation, set `CMAKE_PREFIX_PATH` to the Qt kit that matches your compiler.
 
 ```powershell
-C:\Qt\6.11.1\msvc2022_64\bin\windeployqt.exe `
+cmake -S . -B build
+cmake --build build --config Release --target TrafficSim
+```
+
+In VS Code, the CMake Tools and C/C++ extensions can be used to select a compiler kit, configure the project, and build the `TrafficSim` target.
+
+## Tests
+
+Build and run the test suite with:
+
+```powershell
+cmake --build build --config Release --target TrafficSimTests
+ctest --test-dir build -C Release --output-on-failure
+```
+
+The tests cover road-network parsing, geographic input validation, route-based car creation, and simulation movement. The Overpass integration test makes a live network request and may fail if the service or internet connection is unavailable.
+
+## Windows deployment
+
+For a self-contained Windows build, run `windeployqt` from the Qt kit used to build the application:
+
+```powershell
+<Qt-kit>\bin\windeployqt.exe `
   --release `
   --qmldir .\src\gui `
   .\build\Release\TrafficSim.exe
