@@ -48,6 +48,9 @@ void Simulation::update()
   // Integrate simulation time.
   m_time += m_timeStep;
 
+  if (++m_stepCount % 40 == 0) // 40 * 0.05 = 2 seconds
+    qInfo() << "Active cars:" << m_traffic.cars().size();
+
   emit carsUpdated(carPositions());
 }
 
@@ -67,6 +70,7 @@ void Simulation::clear()
   m_roadNetwork.clear();
   m_traffic = Traffic{};
   m_time = 0.0;
+  m_stepCount = 0;
   m_started = false;
   m_timer.stop();
 

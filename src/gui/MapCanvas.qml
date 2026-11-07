@@ -263,6 +263,8 @@ Item {
     Rectangle {
         id: addressSearchPanel
 
+        // Keep address search controls locked with map interaction
+        enabled: root.interactionEnabled
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.leftMargin: 16
@@ -348,7 +350,8 @@ Item {
         height: 40
         z: 2
         text: "Default view"
-        enabled: !!root.backend
+        // Keep default navigation locked with map interaction
+        enabled: !!root.backend && root.interactionEnabled
 
         // Keep the map control visible while allowing map details through its background
         background: Rectangle {

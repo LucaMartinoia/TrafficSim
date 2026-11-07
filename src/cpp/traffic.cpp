@@ -135,7 +135,7 @@ double Traffic::roadDensityFactor(int waysCount, double area)
   constexpr double urbanFactor = 100.0;
 
   // Reference density: 121 ways / 211300 m²
-  constexpr double urbanRoadDensity = 121.0 / 211300.0;
+  constexpr double urbanRoadDensity = 150.0 / 211300.0;
 
   if (area <= 0.0 || !std::isfinite(area) || waysCount <= 0)
     return 1;
@@ -143,7 +143,7 @@ double Traffic::roadDensityFactor(int waysCount, double area)
   const double roadDensity = waysCount / area;
   const double x = std::clamp(roadDensity / urbanRoadDensity, 0.0, 1.0);
 
-  return ruralFactor + (urbanFactor - ruralFactor) * x * x;
+  return ruralFactor + (urbanFactor - ruralFactor) * x;
 }
 
 // Set number of cars target from view
@@ -164,8 +164,7 @@ void Traffic::setTargetFromBBox(const std::pair<QGeoCoordinate, QGeoCoordinate>&
   if (!std::isfinite(estimatedCars) || estimatedCars < 0.0)
     return;
 
-  const int target = static_cast<int>(
-      std::min(estimatedCars, static_cast<double>(std::numeric_limits<int>::max())));
+  const int target = std::max(2, static_cast<int>(estimatedCars));
 
   qInfo() << "Area:" << area << "Ways:" << waysCount << "Density factor:" << factor
           << "Target cars:" << target;

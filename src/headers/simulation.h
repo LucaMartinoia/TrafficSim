@@ -48,6 +48,7 @@ private:
   QTimer m_timer;
   const double m_timeStep = 0.05;
   double m_time = 0.0;
+  int m_stepCount = 0;
   bool m_started = false;
   std::pair<QGeoCoordinate, QGeoCoordinate> m_bbox;
 };
