@@ -66,7 +66,7 @@ int main(int argc, char* argv[])
   if (engine.rootObjects().isEmpty())
     return -1;
 
-  qInfo() << "Starting TrafficSim\n";
+  qInfo() << ">>>\tStarting TrafficSim\t<<<\n";
 
   // Entry point
   return app.exec();

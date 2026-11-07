@@ -14,8 +14,11 @@ bool isValidMapView(const QGeoCoordinate& center, int zoomLevel)
 }
 
 // Check if valid bounding box
-bool isValidBBox(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight)
+bool isValidBBox(const std::pair<QGeoCoordinate, QGeoCoordinate>& bbox)
 {
+  const QGeoCoordinate& topLeft = bbox.first;
+  const QGeoCoordinate& bottomRight = bbox.second;
+
   // Validate geographic coordinates and strict top-left to bottom-right ordering
   return topLeft.isValid() && bottomRight.isValid() &&
          topLeft.latitude() > bottomRight.latitude() &&
@@ -23,13 +26,15 @@ bool isValidBBox(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRigh
 }
 
 // Compute the spherical area of a longitude-latitude rectangle
-double area(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight)
+double area(const std::pair<QGeoCoordinate, QGeoCoordinate>& bbox)
 {
   // Reject invalid or incorrectly ordered bounds with an explicit invalid result
-  if (!isValidBBox(topLeft, bottomRight))
+  if (!isValidBBox(bbox))
     return std::numeric_limits<double>::quiet_NaN();
 
   // Convert the coordinate differences into radians for the spherical area formula
+  const QGeoCoordinate& topLeft = bbox.first;
+  const QGeoCoordinate& bottomRight = bbox.second;
   constexpr double earthRadius = 6371000.0;
   const double longitudeSpan =
       qDegreesToRadians(bottomRight.longitude() - topLeft.longitude());

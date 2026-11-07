@@ -1,5 +1,7 @@
 #pragma once
 
+#include <utility>
+
 #include <QGeoCoordinate>
 #include <QJsonDocument>
 #include <QObject>
@@ -18,11 +20,13 @@ public:
   // Constructor
   explicit Simulation(QObject* parent = nullptr);
   // Load and prepare a road network without starting a blocking simulation loop
-  bool start(const QJsonDocument& response, QString& error);
+  void start(const QJsonDocument& response);
   // Return active car positions for the map overlay
   QVariantList carPositions() const;
   // Reset the loaded network and simulation state
   void clear();
+
+  void setBBox(const std::pair<QGeoCoordinate, QGeoCoordinate>& bbox);
 
   // Getter methods
   double timeStep() const;
@@ -35,8 +39,8 @@ public slots:
   void update();
 
 signals:
+  void roadsReceived(const QVariantList& paths);
   void carsUpdated(const QVariantList& positions);
-  void updateFailed(const QString& error);
 
 private:
   RoadNetwork m_roadNetwork;
@@ -45,4 +49,5 @@ private:
   const double m_timeStep = 0.05;
   double m_time = 0.0;
   bool m_started = false;
+  std::pair<QGeoCoordinate, QGeoCoordinate> m_bbox;
 };

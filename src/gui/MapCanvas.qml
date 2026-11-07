@@ -247,7 +247,7 @@ Item {
         }
     }
 
-    // Forward completed OSM geometry to the map overlay
+    // Observe road and car state forwarded through the backend
     Connections {
         target: root.backend
 

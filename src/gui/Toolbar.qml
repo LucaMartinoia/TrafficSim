@@ -35,8 +35,7 @@ ToolBar {
                 Layout.preferredWidth: 150
 
                 onActivated: {
-                    if (!toolbar.backend.setRoutingMetric(currentText))
-                        currentIndex = 0;
+                    toolbar.backend.setRoutingMetric(currentText);
                 }
             }
 

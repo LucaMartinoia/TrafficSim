@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <utility>
 
 #include <QGeoCoordinate>
 #include <QJsonDocument>
@@ -13,7 +14,7 @@
 class QNetworkAccessManager;
 class QNetworkReply;
 
-// QObject provides signals and Qt parent-child ownership; Q_OBJECT enables its meta-object features
+// QObject provides signals and Qt parent-child ownership
 class OSMClient : public QObject
 {
   Q_OBJECT
@@ -24,14 +25,13 @@ public:
 
   // Convenience methods for the fixed query and a bounding-box query
   void requestDefault();
-  void requestRoadsBBox(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight);
+  void requestRoadsBBox(const std::pair<QGeoCoordinate, QGeoCoordinate>& bbox);
   void cancelPendingRequests();
   bool clearCache();
 
 signals:
-  // Qt generates signal implementations; callers connect to receive results
-  void requestSucceeded(const QString& query, const QJsonDocument& response);
-  void requestFailed(const QString& query, const QString& error);
+  // Keep the request details internal and expose only the parsed response
+  void requestSucceeded(const QJsonDocument& response);
 
 private:
   // Private helpers keep response handling and caching inside the client

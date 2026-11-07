@@ -27,7 +27,7 @@ The Overpass service and a network connection are required on a cache miss. Remo
 - Each full edge stores segment length in meters, maximum velocity in meters per second, and estimated travel time in seconds. OSM `maxspeed` values in km/h (or unitless values) and mph are converted to meters per second; if a usable numeric value is absent, the parser assumes 50 km/h and converts it to meters per second.
 - Coordinates shared between ways are merged. OSM `oneway` tags and supported implied one-way cases set edge direction.
 
-Each edge stores its static `length`, `maxVelocity`, and `freeFlowTime`, plus a dynamic `adaptiveTime`. `RoutingMetric::Distance` selects length, `TravelTime` selects free-flow time, and `AdaptiveTime` selects the adaptive estimate. Route finding uses Dijkstra's algorithm with the selected edge cost. Adaptive-time routing currently uses free-flow travel time; occupancy-dependent costs are not implemented yet.
+Each edge stores its static `length`, `maxVelocity`, and `minTime`, plus a dynamic `travelTime`. `RoutingMetric::Distance` selects length, `TravelTime` selects free-flow time, and `AdaptiveTime` selects the adaptive estimate. Route finding uses Dijkstra's algorithm with the selected edge cost. Adaptive-time routing currently uses free-flow travel time; occupancy-dependent costs are not implemented yet.
 
 ## Traffic model and geographic utilities
 

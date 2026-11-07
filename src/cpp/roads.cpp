@@ -3,8 +3,8 @@
 #include <limits>
 #include <map>
 #include <queue>
+#include <utility>
 
-#include <QDebug>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -27,15 +27,54 @@ struct comparator
   }
 };
 
+// Returns time in seconds
+double travelTime(double length, double velocity) { return length / velocity; }
+
+// Add an edge between coordinates already validated by parseOSMResponse
+void addEdge(RoadNode& current, const QGeoCoordinate& neighborCoordinate,
+             const std::map<QGeoCoordinate, std::size_t, comparator>& nodeIndices, RoadEdge edge)
+{
+  // Fill the geometry-dependent fields and append this outgoing edge
+  edge.destination = nodeIndices.find(neighborCoordinate)->second;
+  edge.length = GeoUtils::distance(current.coordinate, neighborCoordinate);
+  edge.minTime = travelTime(edge.length, edge.maxVelocity);
+  edge.travelTime = edge.minTime;
+  current.edges.push_back(edge);
+}
+
+/*
+TAG PARSING
+*/
+
+// Retrive the directionality of a given road
+WayDirection wayDirection(const QJsonObject& tags)
+{
+  // Interpret explicit one-way tags and the OSM-implied one-way road types
+  const QString oneWay = tags.value(QStringLiteral("oneway")).toString().trimmed().toLower();
+  const QString junction = tags.value(QStringLiteral("junction")).toString().toLower();
+  const QString highway = tags.value(QStringLiteral("highway")).toString().toLower();
+  if (oneWay == QStringLiteral("-1"))
+    return WayDirection::Reverse;
+
+  if (oneWay == QStringLiteral("yes") || oneWay == QStringLiteral("true") ||
+      oneWay == QStringLiteral("1") ||
+      (oneWay.isEmpty() &&
+       (junction == QStringLiteral("roundabout") || junction == QStringLiteral("circular") ||
+        highway == QStringLiteral("motorway") || highway == QStringLiteral("motorway_link"))))
+    return WayDirection::Forward;
+
+  return WayDirection::Bidirectional;
+}
+
 // Parse the OSM tags to read the velocity
 double maxVelocity(const QJsonObject& tags)
 {
-  // TODO: consider improving the tag parser
   QString speedTag = tags.value(QStringLiteral("maxspeed")).toString().trimmed().toLower();
   speedTag = speedTag.section(QLatin1Char(';'), 0, 0).trimmed();
   static const QRegularExpression speedPattern(
       QStringLiteral("^([0-9]+(?:\\.[0-9]+)?)\\s*(mph|km/?h|kmh|kph)?$"));
   const QRegularExpressionMatch match = speedPattern.match(speedTag);
+  // If no velocity, default to 50 km/h
   if (!match.hasMatch())
     return 50.0 / 3.6;
 
@@ -57,221 +96,70 @@ int laneCount(const QJsonObject& tags)
   const int lanes = tags.value(QStringLiteral("lanes")).toString().toInt(&isNumeric);
   return isNumeric && lanes > 0 ? lanes : 1;
 }
-
-// Returns time in seconds
-double travelTime(double length, double velocity) { return length / velocity; }
-
-// Add edges to the adjacency map
-bool addEdge(RoadNode& current, const QJsonArray& geometry, int neighborPointIndex,
-             const std::map<QGeoCoordinate, std::size_t, comparator>& nodeIndices, RoadEdge edge)
-{
-  // Resolve the neighbor and skip geometry points that map to the current node.
-  const QJsonObject neighborPoint = geometry.at(neighborPointIndex).toObject();
-  const QGeoCoordinate neighborCoordinate(neighborPoint.value(QStringLiteral("lat")).toDouble(),
-                                          neighborPoint.value(QStringLiteral("lon")).toDouble());
-  const std::size_t neighborNode = nodeIndices.find(neighborCoordinate)->second;
-  if (neighborCoordinate == current.coordinate)
-    return false;
-
-  // Fill the geometry-dependent fields and append this outgoing edge.
-  edge.destination = neighborNode;
-  edge.length = GeoUtils::distance(current.coordinate, neighborCoordinate);
-  edge.freeFlowTime = travelTime(edge.length, edge.maxVelocity);
-  edge.adaptiveTime = edge.freeFlowTime;
-  current.edges.push_back(edge);
-  return true;
-}
-
-// Check validity of the OSM data
-bool validateOSMResponse(const QJsonDocument& response, QString& error)
-{
-  // Clear a previous error before validating the response envelope.
-  error.clear();
-
-  if (!response.isObject() || !response.object().value(QStringLiteral("elements")).isArray())
-  {
-    error = QStringLiteral("Overpass response must contain an elements array.");
-    return false;
-  }
-
-  return true;
-}
-
-// Enum to store the direction of a given way
-enum class WayDirection
-{
-  Forward,
-  Reverse,
-  Bidirectional
-};
-
-// Retrive the directionality of a given road
-WayDirection wayDirection(const QJsonObject& tags)
-{
-  // Interpret explicit one-way tags and the OSM-implied one-way road types
-  const QString oneWay = tags.value(QStringLiteral("oneway")).toString().trimmed().toLower();
-  const QString junction = tags.value(QStringLiteral("junction")).toString().toLower();
-  const QString highway = tags.value(QStringLiteral("highway")).toString().toLower();
-  if (oneWay == QStringLiteral("-1"))
-    return WayDirection::Reverse;
-
-  if (oneWay == QStringLiteral("yes") || oneWay == QStringLiteral("true") ||
-      oneWay == QStringLiteral("1") ||
-      (oneWay.isEmpty() &&
-       (junction == QStringLiteral("roundabout") || junction == QStringLiteral("circular") ||
-        highway == QStringLiteral("motorway") || highway == QStringLiteral("motorway_link"))))
-    return WayDirection::Forward;
-
-  return WayDirection::Bidirectional;
-}
 } // namespace
 
+/*
+BUILDING NETWORK
+*/
+
 // Build the adjacency list for the road graph
-bool RoadNetwork::buildRoadNetwork(const QJsonDocument& response, QString& error)
+bool RoadNetwork::buildRoadNetwork(const QJsonDocument& response)
 {
-  // Validate the response before building a replacement graph
-  if (!validateOSMResponse(response, error))
+  // Parse and validate the JSON before replacing the current graph
+  if (!parseOSMResponse(response))
     return false;
 
-  // We use parsedNodes instead of the class member to avoid mid-parsing errors
+  // Build graph nodes from the validated intermediate representation
   std::vector<RoadNode> parsedNodes;
-  // Dictionary to get node index from its coordinates
   std::map<QGeoCoordinate, std::size_t, comparator> nodeIndices;
-
-  const QJsonArray elements = response.object().value(QStringLiteral("elements")).toArray();
-  qInfo() << "Parsing road network from" << elements.size() << "OSM elements.";
-  std::size_t wayCount = 0;
-  std::size_t edgeCount = 0;
-
-  // First pass: validate way geometry and populate parsedNodes with unique nodes
-  for (const QJsonValue& elementValue : elements)
+  for (const ParsedWay& way : m_parsedWays)
   {
-    // Check if object
-    if (!elementValue.isObject())
+    for (const QGeoCoordinate& coordinate : way.points)
     {
-      error = QStringLiteral("OSM element is the returned JSON is not an object.");
-      return false;
-    }
-
-    // Check if way type
-    const QJsonObject element = elementValue.toObject();
-    if (element.value(QStringLiteral("type")).toString() != QStringLiteral("way"))
-      continue;
-
-    // Check if valid geometry
-    const QJsonValue geometryValue = element.value(QStringLiteral("geometry"));
-    if (!geometryValue.isArray() || geometryValue.toArray().size() < 2)
-    {
-      error = QStringLiteral("OSM way %1 has no usable geometry.")
-                  .arg(element.value(QStringLiteral("id")).toVariant().toString());
-      return false;
-    }
-
-    // If valid entry
-    ++wayCount;
-    const QJsonArray geometry = geometryValue.toArray();
-    for (const QJsonValue& pointValue : geometry)
-    {
-      // Check if object
-      if (!pointValue.isObject())
-      {
-        error = QStringLiteral("OSM way geometry contains a non-object point.");
-        return false;
-      }
-
-      const QJsonObject point = pointValue.toObject();
-      const QJsonValue latitudeValue = point.value(QStringLiteral("lat"));
-      const QJsonValue longitudeValue = point.value(QStringLiteral("lon"));
-      // Check if coordinates are valid
-      if (!latitudeValue.isDouble() || !longitudeValue.isDouble())
-      {
-        error = QStringLiteral("OSM way geometry point is missing numeric coordinates.");
-        return false;
-      }
-      const QGeoCoordinate coordinate(latitudeValue.toDouble(), longitudeValue.toDouble());
-      if (!coordinate.isValid())
-      {
-        error = QStringLiteral("OSM way geometry contains an invalid coordinate.");
-        return false;
-      }
-
-      // Register coordinates once so ways sharing a point share a graph node.
       if (!nodeIndices.contains(coordinate))
       {
         const std::size_t nodeIndex = parsedNodes.size();
-        // Add new node to the map
         nodeIndices.emplace(coordinate, nodeIndex);
-        // And to the adjacency list
-        RoadNode newNode(coordinate);
-        parsedNodes.push_back(newNode);
+        parsedNodes.emplace_back(coordinate);
       }
     }
   }
 
-  // Not a network
-  if (parsedNodes.size() < 2)
+  std::size_t edgeCount = 0;
+  // Create directed edges from each adjacent pair in a parsed way
+  for (const ParsedWay& way : m_parsedWays)
   {
-    error = QStringLiteral("Road network must contain at least two nodes.");
-    return false;
-  }
-
-  // Second pass: add each way's outgoing edges to the current node
-  for (const QJsonValue& elementValue : elements)
-  {
-    const QJsonObject element = elementValue.toObject();
-
-    // Check if way type
-    if (element.value(QStringLiteral("type")).toString() != QStringLiteral("way"))
-      continue;
-
-    // Gather way's geometry, direction and velocity data
-    const QJsonArray geometry = element.value(QStringLiteral("geometry")).toArray();
-    const QJsonObject tags = element.value(QStringLiteral("tags")).toObject();
-    const WayDirection direction = wayDirection(tags);
-    // Keep this way's shared metadata on the stub copied into each emitted edge.
     RoadEdge edge{};
-    edge.maxVelocity = maxVelocity(tags);
-    edge.lanes = laneCount(tags);
-
-    // Loop over all points in the given way
-    for (int pointIndex = 0; pointIndex < geometry.size(); ++pointIndex)
+    edge.maxVelocity = way.maxVelocity;
+    edge.lanes = way.lanes;
+    for (std::size_t pointIndex = 0; pointIndex + 1 < way.points.size(); ++pointIndex)
     {
-      // Retrive current node data from the nodeIndices dictionary
-      const QJsonObject currentPoint = geometry.at(pointIndex).toObject();
-      const QGeoCoordinate currentCoordinate(currentPoint.value(QStringLiteral("lat")).toDouble(),
-                                             currentPoint.value(QStringLiteral("lon")).toDouble());
-      const std::size_t currentNode = nodeIndices.find(currentCoordinate)->second;
-      RoadNode& current = parsedNodes[currentNode];
-
-      // Select adjacent points according to the way's travel direction
-      if (direction != WayDirection::Forward && pointIndex > 0)
+      const QGeoCoordinate& currentCoordinate = way.points[pointIndex];
+      const QGeoCoordinate& nextCoordinate = way.points[pointIndex + 1];
+      if (way.direction != WayDirection::Forward)
       {
-        if (addEdge(current, geometry, pointIndex - 1, nodeIndices, edge))
-          ++edgeCount;
+        const std::size_t currentNode = nodeIndices.find(nextCoordinate)->second;
+        RoadNode& current = parsedNodes[currentNode];
+        addEdge(current, currentCoordinate, nodeIndices, edge);
+        ++edgeCount;
       }
-      if (direction != WayDirection::Reverse && pointIndex + 1 < geometry.size())
+      if (way.direction != WayDirection::Reverse)
       {
-        if (addEdge(current, geometry, pointIndex + 1, nodeIndices, edge))
-          ++edgeCount;
+        const std::size_t currentNode = nodeIndices.find(currentCoordinate)->second;
+        RoadNode& current = parsedNodes[currentNode];
+        addEdge(current, nextCoordinate, nodeIndices, edge);
+        ++edgeCount;
       }
     }
-  }
-
-  // Reject the network if every candidate edge was invalid.
-  if (edgeCount == 0)
-  {
-    error = QStringLiteral("Road network must contain at least one valid edge.");
-    return false;
   }
 
   // Replace the graph only after the complete response has parsed successfully
-  // TODO: remove edgeCount and wayCounts
   m_nodes.swap(parsedNodes);
-  m_occupancy.clear();
-  qInfo() << "Parsed" << wayCount << "ways into" << m_nodes.size() << "nodes and" << edgeCount
-          << "directed edges.";
+  qInfo() << "Parsed" << m_parsedWays.size() << "OSM way segments into" << m_nodes.size()
+          << "nodes and" << edgeCount << "directed edges.";
 
   // Initialize the occupancy adjacenct list counters
+  m_occupancy.clear();
   m_occupancy.reserve(m_nodes.size());
 
   for (const RoadNode& node : m_nodes)
@@ -280,45 +168,91 @@ bool RoadNetwork::buildRoadNetwork(const QJsonDocument& response, QString& error
   return true;
 }
 
-// Produce a polyline for display
-QVariantList RoadNetwork::roadsPolyline(const QJsonDocument& response)
+// Convert valid OSM way data into the intermediate representation
+bool RoadNetwork::parseOSMResponse(const QJsonDocument& response)
 {
-  // Convert each way's valid geometry points into a path for MapPolyline
+  // Validate the response envelope before examining individual elements
+  if (!response.isObject() || !response.object().value(QStringLiteral("elements")).isArray())
+  {
+    qWarning() << "Overpass API response must contain an elements array";
+    return false;
+  }
+
   const QJsonArray elements = response.object().value(QStringLiteral("elements")).toArray();
-  QVariantList paths;
+  std::vector<ParsedWay> parsedWays;
   for (const QJsonValue& elementValue : elements)
   {
-    // Skip non-way types
+    // Skip malformed elements and non-way elements
+    if (!elementValue.isObject())
+      continue;
+
     const QJsonObject element = elementValue.toObject();
     if (element.value(QStringLiteral("type")).toString() != QStringLiteral("way"))
       continue;
 
-    QVariantList path;
-    const QJsonArray geometry = element.value(QStringLiteral("geometry")).toArray();
-    for (const QJsonValue& pointValue : geometry)
+    const QJsonValue geometryValue = element.value(QStringLiteral("geometry"));
+    if (!geometryValue.isArray())
+      continue;
+
+    // Gather tags data
+    const QJsonObject tags = element.value(QStringLiteral("tags")).toObject();
+    ParsedWay way{};
+    way.direction = wayDirection(tags);
+    way.maxVelocity = maxVelocity(tags);
+    way.lanes = laneCount(tags);
+
+    // Keep valid coordinates and skip malformed points
+    for (const QJsonValue& pointValue : geometryValue.toArray())
     {
+      if (!pointValue.isObject())
+        continue;
+
       const QJsonObject point = pointValue.toObject();
-      const QGeoCoordinate coordinate(point.value(QStringLiteral("lat")).toDouble(),
-                                      point.value(QStringLiteral("lon")).toDouble());
-      if (coordinate.isValid())
-        path.append(QVariant::fromValue(coordinate));
+      const QJsonValue latitude = point.value(QStringLiteral("lat"));
+      const QJsonValue longitude = point.value(QStringLiteral("lon"));
+      const QGeoCoordinate coordinate(latitude.toDouble(), longitude.toDouble());
+      if (!coordinate.isValid())
+        continue;
+
+      // Ignore adjacent duplicates to avoid zero-length self-edges
+      if (way.points.empty() || way.points.back() != coordinate)
+        way.points.push_back(coordinate);
     }
 
-    if (path.size() >= 2)
-      paths.append(QVariant::fromValue(path));
+    // Retain only ways with at least one usable segment
+    if (way.points.size() >= 2)
+      parsedWays.push_back(std::move(way));
   }
 
-  // Logging purposes
-  int geometryPoints = 0;
-  for (const QVariant& path : paths)
-    geometryPoints += path.toList().size();
+  if (parsedWays.empty())
+  {
+    qWarning() << "Road network must contain at least one valid edge";
+    return false;
+  }
 
-  // Dispatch prepared paths to the map and report the processed response
-  qInfo() << "Overpass request succeeded:" << elements.size() << "elements," << paths.size()
-          << "ways," << geometryPoints << "geometry points.";
+  // Replace the intermediate representation only after parsing a usable network
+  m_parsedWays.swap(parsedWays);
+  return true;
+}
 
+// Produce a polyline for display
+QVariantList RoadNetwork::roadsPolyline() const
+{
+  // Convert the validated way segments into paths for MapPolyline
+  QVariantList paths;
+  for (const ParsedWay& way : m_parsedWays)
+  {
+    QVariantList path;
+    for (const QGeoCoordinate& point : way.points)
+      path.append(QVariant::fromValue(point));
+    paths.append(QVariant::fromValue(path));
+  }
   return paths;
 }
+
+/*
+ROUTE FINDING
+*/
 
 // Compute the route between two nodes
 bool RoadNetwork::findRoute(std::size_t startNode, std::size_t endNode, RoadRoute& route) const
@@ -358,7 +292,7 @@ bool RoadNetwork::Astar(std::size_t startNode, std::size_t endNode, RoadRoute& r
   std::vector<double> costs(m_nodes.size(), infinity);
   // The edge to the previous node
   std::vector<RoadEdgeId> predecessors(m_nodes.size());
-  // Min-priority queue ordered by cost (std::greater reverses the default max-heap ordering).
+  // Min-priority queue ordered by cost (std::greater reverses the default max-heap ordering)
   using QueueEntry = std::tuple<double, double, std::size_t>;
   std::priority_queue<QueueEntry, std::vector<QueueEntry>, std::greater<QueueEntry>> queue;
   // Initialize starting node
@@ -387,10 +321,10 @@ bool RoadNetwork::Astar(std::size_t startNode, std::size_t endNode, RoadRoute& r
       double edgeCost = -1.;
       if (m_routingMetric == RoutingMetric::Distance)
         edgeCost = edge.length;
+      else if (m_routingMetric == RoutingMetric::MinTime)
+        edgeCost = edge.minTime;
       else if (m_routingMetric == RoutingMetric::TravelTime)
-        edgeCost = edge.freeFlowTime;
-      else if (m_routingMetric == RoutingMetric::AdaptiveTime)
-        edgeCost = edge.adaptiveTime;
+        edgeCost = edge.travelTime;
 
       if (!std::isfinite(edgeCost) || edgeCost < 0.0)
         continue;
@@ -436,10 +370,14 @@ double RoadNetwork::heuristic(std::size_t node, std::size_t end) const
   return distance / maxVelocity;
 }
 
+/*
+OCCUPANCY LIST METHODS
+*/
+
 // Reset to zero the occupancy counters
 void RoadNetwork::resetOccupancy()
 {
-  if (m_routingMetric != RoutingMetric::AdaptiveTime)
+  if (m_routingMetric != RoutingMetric::TravelTime)
     return;
 
   for (auto& nodeOccupancy : m_occupancy)
@@ -449,7 +387,7 @@ void RoadNetwork::resetOccupancy()
 // Increment the occupancy counter for an edge in the adaptive routing metric
 void RoadNetwork::incrementOccupancy(const RoadEdgeId id)
 {
-  if (m_routingMetric != RoutingMetric::AdaptiveTime)
+  if (m_routingMetric != RoutingMetric::TravelTime)
     return;
 
   // Ignore edge references that do not match the current graph
@@ -462,7 +400,7 @@ void RoadNetwork::incrementOccupancy(const RoadEdgeId id)
 // Update the travel times according to the occupancy
 void RoadNetwork::updateTravelTimes()
 {
-  if (m_routingMetric != RoutingMetric::AdaptiveTime)
+  if (m_routingMetric != RoutingMetric::TravelTime)
     return;
 
   for (std::size_t nodeIndex = 0; nodeIndex < m_nodes.size(); ++nodeIndex)
@@ -472,34 +410,44 @@ void RoadNetwork::updateTravelTimes()
     {
       RoadEdge& edge = node.edges[edgeIndex];
       const std::size_t cars = m_occupancy[nodeIndex][edgeIndex];
-      edge.adaptiveTime = edge.freeFlowTime;
+      edge.travelTime = edge.minTime;
 
       // Delay scales linearly with cars
       if (cars > 1)
-        edge.adaptiveTime *= 1.0 + static_cast<double>(cars - 1) / static_cast<double>(edge.lanes);
+        edge.travelTime *= 1.0 + static_cast<double>(cars - 1) / static_cast<double>(edge.lanes);
     }
   }
 }
 
-// Getter methods
-const std::vector<RoadNode>& RoadNetwork::nodes() const { return m_nodes; }
-
 // Clear graph data
 void RoadNetwork::clear()
 {
+  m_parsedWays.clear();
   m_nodes.clear();
   m_occupancy.clear();
 }
+
+/*
+GETTER METHODS
+*/
+
+// Getter methods
+const std::vector<RoadNode>& RoadNetwork::nodes() const { return m_nodes; }
+const std::vector<ParsedWay>& RoadNetwork::ways() const { return m_parsedWays; }
+
+/*
+SETTER METHODS
+*/
 
 // Setter methods
 void RoadNetwork::setRoutingMetric(QString metric)
 {
   if (metric == QStringLiteral("Distance"))
     setRoutingMetric(RoutingMetric::Distance);
-  else if (metric == QStringLiteral("Travel time"))
-    setRoutingMetric(RoutingMetric::TravelTime);
+  else if (metric == QStringLiteral("Travel time")) // TODO: fix
+    setRoutingMetric(RoutingMetric::MinTime);
   else if (metric == QStringLiteral("Adaptive time"))
-    setRoutingMetric(RoutingMetric::AdaptiveTime);
+    setRoutingMetric(RoutingMetric::TravelTime);
   else
   {
     qWarning() << "Ignoring unknown routing metric:" << metric;

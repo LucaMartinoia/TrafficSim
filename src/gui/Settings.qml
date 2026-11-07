@@ -148,7 +148,7 @@ Item {
                     enabled: !!root.backend
                     onClicked: {
                         // Ask the backend to clear OSM data and report the result
-                        statusLabel.text = root.backend.clearCache() ? "Cached OSM data cleared." : "Could not clear cached OSM data. See the application log.";
+                        statusLabel.text = root.backend.clearCache() ? "Cached OSM data cleared." : "Could not clear cached OSM data.";
                     }
                 }
 
@@ -165,7 +165,7 @@ Item {
                         if (root.backend.saveSettings(center, zoomField.value)) {
                             statusLabel.text = "Default map view saved.";
                         } else {
-                            statusLabel.text = "Could not save the default map view. See the application log.";
+                            statusLabel.text = "Could not save the default map view.";
                         }
                     }
                 }

@@ -1,4 +1,5 @@
 #include <cmath>
+#include <utility>
 #include <vector>
 
 #include <QGeoCoordinate>
@@ -68,9 +69,9 @@ private slots:
     QCOMPARE(nodes[0].edges[0].destination, std::size_t(1));
     QCOMPARE(nodes[0].edges[0].maxVelocity, 10.0);
     QCOMPARE(nodes[0].edges[0].lanes, 2);
-    QVERIFY(nodes[0].edges[0].freeFlowTime > 0.0);
-    QVERIFY(std::abs(nodes[0].edges[0].freeFlowTime - nodes[0].edges[0].length / 10.0) < 0.001);
-    QCOMPARE(nodes[0].edges[0].adaptiveTime, nodes[0].edges[0].freeFlowTime);
+    QVERIFY(nodes[0].edges[0].minTime > 0.0);
+    QVERIFY(std::abs(nodes[0].edges[0].minTime - nodes[0].edges[0].length / 10.0) < 0.001);
+    QCOMPARE(nodes[0].edges[0].travelTime, nodes[0].edges[0].minTime);
     QVERIFY(nodes[1].edges.size() == 2);
     QCOMPARE(nodes[1].edges[1].destination, std::size_t(2));
     QCOMPARE(nodes[2].edges[2].destination, std::size_t(4));
@@ -81,24 +82,23 @@ private slots:
     // Confirm occupancy adds delay above one car and that lane count moderates the increase.
     network.setRoutingMetric(RoutingMetric::AdaptiveTime);
     network.updateTravelTimes();
-    QCOMPARE(nodes[0].edges[0].adaptiveTime, nodes[0].edges[0].freeFlowTime);
+    QCOMPARE(nodes[0].edges[0].travelTime, nodes[0].edges[0].minTime);
     network.incrementOccupancy({0, 0});
     network.updateTravelTimes();
-    QCOMPARE(nodes[0].edges[0].adaptiveTime, nodes[0].edges[0].freeFlowTime);
+    QCOMPARE(nodes[0].edges[0].travelTime, nodes[0].edges[0].minTime);
     network.incrementOccupancy({0, 0});
     network.incrementOccupancy({0, 0});
     network.updateTravelTimes();
-    QVERIFY(std::abs(nodes[0].edges[0].adaptiveTime -
-                     nodes[0].edges[0].freeFlowTime * 2.0) < 0.001);
+    QVERIFY(std::abs(nodes[0].edges[0].travelTime - nodes[0].edges[0].minTime * 2.0) < 0.001);
     network.incrementOccupancy({2, 2});
     network.incrementOccupancy({2, 2});
     network.incrementOccupancy({2, 2});
     network.updateTravelTimes();
-    QVERIFY(std::abs(nodes[2].edges[2].adaptiveTime -
-                     nodes[2].edges[2].freeFlowTime * (1.0 + 2.0 / 3.0)) < 0.001);
+    QVERIFY(std::abs(nodes[2].edges[2].travelTime - nodes[2].edges[2].minTime * (1.0 + 2.0 / 3.0)) <
+            0.001);
     network.resetOccupancy();
     network.updateTravelTimes();
-    QCOMPARE(nodes[0].edges[0].adaptiveTime, nodes[0].edges[0].freeFlowTime);
+    QCOMPARE(nodes[0].edges[0].travelTime, nodes[0].edges[0].minTime);
 
     // Reject distinct nodes with only invalid self-edges and preserve the current graph.
     const QByteArray disconnectedNetworkJson = R"json(
@@ -131,20 +131,23 @@ private slots:
     // Accept top-left and bottom-right coordinates in geographic order
     const QGeoCoordinate topLeft(45.0, 8.0);
     const QGeoCoordinate bottomRight(44.0, 9.0);
-    QVERIFY(GeoUtils::isValidBBox(topLeft, bottomRight));
+    const std::pair<QGeoCoordinate, QGeoCoordinate> bbox{topLeft, bottomRight};
+    QVERIFY(GeoUtils::isValidBBox(bbox));
 
     // Verify a one-degree square at the equator uses the spherical area calculation
     const QGeoCoordinate equatorTopLeft(1.0, 0.0);
     const QGeoCoordinate equatorBottomRight(0.0, 1.0);
     const double expectedArea =
         6371000.0 * 6371000.0 * qDegreesToRadians(1.0) * std::sin(qDegreesToRadians(1.0));
-    QVERIFY(std::abs(GeoUtils::area(equatorTopLeft, equatorBottomRight) - expectedArea) <
+    const std::pair<QGeoCoordinate, QGeoCoordinate> equatorBBox{equatorTopLeft,
+                                                                equatorBottomRight};
+    QVERIFY(std::abs(GeoUtils::area(equatorBBox) - expectedArea) <
             expectedArea * 0.000001);
 
     // Reject invalid coordinates and corners with reversed ordering
-    QVERIFY(!GeoUtils::isValidBBox(QGeoCoordinate(91.0, 8.0), bottomRight));
-    QVERIFY(!GeoUtils::isValidBBox(bottomRight, topLeft));
-    QVERIFY(std::isnan(GeoUtils::area(bottomRight, topLeft)));
+    QVERIFY(!GeoUtils::isValidBBox({QGeoCoordinate(91.0, 8.0), bottomRight}));
+    QVERIFY(!GeoUtils::isValidBBox({bottomRight, topLeft}));
+    QVERIFY(std::isnan(GeoUtils::area({bottomRight, topLeft})));
   }
 
   void mapViewRequiresValidCoordinateAndZoom()
@@ -200,8 +203,10 @@ private slots:
     )json";
 
     Simulation simulation;
+    QSignalSpy roadsReceivedSpy(&simulation, &Simulation::roadsReceived);
     QSignalSpy carsUpdatedSpy(&simulation, &Simulation::carsUpdated);
     QSignalSpy updateFailedSpy(&simulation, &Simulation::updateFailed);
+    QVERIFY(roadsReceivedSpy.isValid());
     QVERIFY(carsUpdatedSpy.isValid());
     QVERIFY(updateFailedSpy.isValid());
 
@@ -211,16 +216,19 @@ private slots:
 
     const QGeoCoordinate topLeft(44.01, 8.0);
     const QGeoCoordinate bottomRight(44.0, 8.01);
-    simulation.traffic().setTargetFromBBox(topLeft, bottomRight);
+    const std::pair<QGeoCoordinate, QGeoCoordinate> bbox{topLeft, bottomRight};
+    simulation.traffic().setTargetFromBBox(bbox, 0);
     QString error;
     QVERIFY2(simulation.start(QJsonDocument::fromJson(json), error), qPrintable(error));
+    QCOMPARE(roadsReceivedSpy.count(), 1);
+    QVERIFY(!roadsReceivedSpy.constLast().at(0).toList().isEmpty());
     QCOMPARE(simulation.time(), 0.0);
     QCOMPARE(simulation.timeStep(), 0.05);
 
     // Verify the box determines a target, while arrivals grow stochastically toward it.
     const int targetCars = simulation.traffic().target();
-    const int expectedCars = static_cast<int>(std::round(
-        GeoUtils::area(topLeft, bottomRight) * 2.0e-4 * 0.7 * 0.1));
+    const int expectedCars =
+        static_cast<int>(std::round(GeoUtils::area(bbox) * 2.0e-4 * 0.7 * 0.1));
     QCOMPARE(targetCars, expectedCars);
     // Add one deterministic test car and disable random arrivals for this lifecycle check
     simulation.traffic().setTarget(0);
@@ -242,6 +250,10 @@ private slots:
 
     // Clear the simulation and verify that it cannot advance without a network.
     simulation.clear();
+    QCOMPARE(roadsReceivedSpy.count(), 2);
+    QVERIFY(roadsReceivedSpy.constLast().at(0).toList().isEmpty());
+    QCOMPARE(carsUpdatedSpy.count(), 3);
+    QVERIFY(carsUpdatedSpy.constLast().at(0).toList().isEmpty());
     simulation.update();
     QCOMPARE(updateFailedSpy.count(), 2);
     QCOMPARE(simulation.time(), 0.0);
@@ -317,12 +329,12 @@ private slots:
 
     // The positive rate should sample safely even when the population exceeds its target
     QCOMPARE(traffic.cars().size(), std::size_t(6));
-    QVERIFY2(traffic.spawnCars(network, 0.05, error), qPrintable(error));
+    QVERIFY2(traffic.createCars(network, 0.05, error), qPrintable(error));
     QVERIFY(traffic.cars().size() >= std::size_t(6));
 
     // A zero timestep is a no-op and must not construct the distribution
     const std::size_t carsBeforeZeroStep = traffic.cars().size();
-    QVERIFY2(traffic.spawnCars(network, 0.0, error), qPrintable(error));
+    QVERIFY2(traffic.createCars(network, 0.0, error), qPrintable(error));
     QCOMPARE(traffic.cars().size(), carsBeforeZeroStep);
   }
 };

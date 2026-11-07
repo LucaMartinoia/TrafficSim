@@ -1,15 +1,12 @@
 #include <cmath>
-#include <exception>
 #include <limits>
 #include <random>
 #include <utility>
 
-#include <QDebug>
-
 #include "geo_utils.h"
 #include "traffic.h"
 
-// Helper to retrive edge fata from the adjacency list
+// Helper to retrive edges from the roads adjacency list
 const RoadEdge& Car::getEdge(const RoadNetwork& network) const
 {
   const RoadEdgeId& id = route[routeSegment];
@@ -17,11 +14,8 @@ const RoadEdge& Car::getEdge(const RoadNetwork& network) const
 }
 
 // Add a single car to the simulation
-bool Traffic::addCar(const RoadNetwork& network, QString& error)
+void Traffic::addCar(const RoadNetwork& network)
 {
-  // Clear a previous error because invalid routes are intentionally ignored
-  error.clear();
-
   // Get the adjacency list
   const std::vector<RoadNode>& nodes = network.nodes();
   Car car;
@@ -31,7 +25,7 @@ bool Traffic::addCar(const RoadNetwork& network, QString& error)
   std::size_t start = nodeDistribution(m_randomEngine);
   std::size_t destination = nodeDistribution(m_randomEngine);
 
-  // Check if selected nodes lead to a valid path
+  // Loop until selected nodes lead to a valid path
   while (start == destination || !network.findRoute(start, destination, car.route))
   {
     start = nodeDistribution(m_randomEngine);
@@ -42,20 +36,13 @@ bool Traffic::addCar(const RoadNetwork& network, QString& error)
   car.position = nodes[start].coordinate;
   car.velocity = car.getEdge(network).maxVelocity;
   m_cars.push_back(std::move(car));
-  return true;
 }
 
-bool Traffic::spawnCars(const RoadNetwork& network, double dt, QString& error)
+void Traffic::createCars(const RoadNetwork& network, double dt)
 {
-  // Refuse invalid time steps before constructing the arrival distribution
-  if (!std::isfinite(dt) || dt < 0.0)
-  {
-    error = QStringLiteral("Car spawning requires a finite, non-negative timestep.");
-    return false;
-  }
-
+  // Refuse invalid targets
   if (m_target <= 0)
-    return true;
+    return;
 
   // Increase the arrival rate as the active population falls below its target
   // TODO: eventually scale lambda by a random factor to increase fluctuations
@@ -67,21 +54,14 @@ bool Traffic::spawnCars(const RoadNetwork& network, double dt, QString& error)
 
   // If more cars than target, don't spawn new cars
   if (lambda <= 0)
-  {
-    return true;
-  }
+    return;
 
   // Sample spawn number
   std::poisson_distribution<int> arrivalCount(lambda * dt);
   int arrivals = arrivalCount(m_randomEngine);
 
   for (int arrival = 0; arrival < arrivals; ++arrival)
-  {
-    if (!addCar(network, error))
-      return false;
-  }
-
-  return true;
+    addCar(network);
 }
 
 // Update step
@@ -99,7 +79,8 @@ void Traffic::update(RoadNetwork& network, double dt)
     {
       // Current edge data
       const RoadEdge& edge = car.getEdge(network);
-      car.velocity = edge.length / edge.adaptiveTime;
+      // TODO: add traffic flag (velocity = l/minTime without flag)
+      car.velocity = edge.length / edge.travelTime;
       const double remainingDistance = edge.length - car.distance;
       const double timeToEnd = remainingDistance / car.velocity;
 
@@ -137,7 +118,6 @@ void Traffic::update(RoadNetwork& network, double dt)
   }
 }
 
-// TODO: maybe we can just keep the cars in the array and set the flag to false?
 void Traffic::removeCars()
 {
   // Remove arrived cars using the erase-remove idiom
@@ -148,40 +128,56 @@ void Traffic::removeCars()
 SETTER METHODS
 */
 
-// Set number of cars target from view
-void Traffic::setTargetFromBBox(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight)
+// Estimate population-density correction from road density
+double Traffic::roadDensityFactor(int waysCount, double area)
 {
-  // Convert the bounding-box area into the estimated moving-car population
-  constexpr double peoplePerSquareMeter = 2.0e-3;
+  constexpr double ruralFactor = 0.1;
+  constexpr double urbanFactor = 100.0;
+
+  // Reference density: 121 ways / 211300 m²
+  constexpr double urbanRoadDensity = 121.0 / 211300.0;
+
+  if (area <= 0.0 || !std::isfinite(area) || waysCount <= 0)
+    return 1;
+
+  const double roadDensity = waysCount / area;
+  const double x = std::clamp(roadDensity / urbanRoadDensity, 0.0, 1.0);
+
+  return ruralFactor + (urbanFactor - ruralFactor) * x * x;
+}
+
+// Set number of cars target from view
+void Traffic::setTargetFromBBox(const std::pair<QGeoCoordinate, QGeoCoordinate>& bbox,
+                                int waysCount)
+{
+  constexpr double peoplePerSquareMeter = 2.0e-4;
   constexpr double carsPerPerson = 0.7;
   constexpr double movingCarRatio = 0.1;
-  const double estimatedCars =
-      GeoUtils::area(topLeft, bottomRight) * peoplePerSquareMeter * carsPerPerson * movingCarRatio;
-  // TODO: remove and put a default traffic value
-  if (!std::isfinite(estimatedCars) ||
-      estimatedCars > static_cast<double>(std::numeric_limits<int>::max()))
+
+  const double area = GeoUtils::area(bbox);
+
+  const double baseCars = area * peoplePerSquareMeter * carsPerPerson * movingCarRatio;
+
+  const double factor = roadDensityFactor(waysCount, area);
+  const double estimatedCars = baseCars * factor;
+
+  if (!std::isfinite(estimatedCars) || estimatedCars < 0.0)
     return;
 
-  // Delegate the rounded estimate to the generic car-count setter
-  setTarget(static_cast<int>(estimatedCars));
-  return;
+  const int target = static_cast<int>(
+      std::min(estimatedCars, static_cast<double>(std::numeric_limits<int>::max())));
+
+  qInfo() << "Area:" << area << "Ways:" << waysCount << "Density factor:" << factor
+          << "Target cars:" << target;
+
+  setTarget(target);
 }
 
 // Target setter
 void Traffic::setTarget(int count) { m_target = count > 0 ? count : 0; }
 
 // Set the target multiplier
-bool Traffic::setTargetScale(double scale)
-{
-  if (!std::isfinite(scale) || scale < 0.1 || scale > 10.0)
-  {
-    qWarning() << "Ignoring invalid traffic scale:" << scale;
-    return false;
-  }
-
-  m_targetScale = scale;
-  return true;
-}
+void Traffic::setTargetScale(const double scale) { m_targetScale = scale > 0 ? scale : 1; }
 
 /*
 GETTER METHODS

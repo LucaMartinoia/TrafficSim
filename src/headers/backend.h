@@ -1,12 +1,14 @@
 #pragma once
 
 #include <QGeoCoordinate>
+#include <QJsonDocument>
 #include <QObject>
-#include <QTimer>
+#include <QString>
 #include <QVariantList>
 #include <QVariantMap>
 
 #include "OSMclient.h"
+#include "settings.h"
 #include "simulation.h"
 
 class Backend : public QObject
@@ -25,8 +27,8 @@ public:
   Q_INVOKABLE bool clearCache();
   Q_INVOKABLE bool saveSettings(const QGeoCoordinate& center, int zoomLevel);
   Q_INVOKABLE QVariantMap getSettings() const;
-  Q_INVOKABLE bool setRoutingMetric(const QString& metric);
-  Q_INVOKABLE bool setTargetScale(double scale);
+  Q_INVOKABLE void setRoutingMetric(const QString& metric);
+  Q_INVOKABLE void setTargetScale(const double scale);
 
 signals:
   // Signals are Qt main async mechanism to send callbacks between modules and GUI
@@ -36,9 +38,7 @@ signals:
 
 private slots:
   // Slots are the callbacks connected to signals
-  void handleOSMRequest(const QString& query, const QJsonDocument& response);
-  void handleOSMError(const QString& query, const QString& error);
-  void handleSimulationError(const QString& error);
+  void handleOSMRequest(const QJsonDocument& response);
   void publishLogMessage(QString severity, QString message);
 
 private:
@@ -47,6 +47,5 @@ private:
   // Backend owns the OSMClient and the Simulation engine
   OSMClient m_OSMclient;
   Simulation m_simulation;
-  QGeoCoordinate m_defaultLocation{44.4056, 8.9463};
-  int m_defaultZoom = 18;
+  Settings m_settings;
 };

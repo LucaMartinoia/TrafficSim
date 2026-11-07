@@ -1,5 +1,4 @@
 #include <QCryptographicHash>
-#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -40,6 +39,10 @@ bool OSMClient::isValidResponse(const QJsonDocument& document)
          !document.object().contains(QStringLiteral("remark"));
 }
 
+/*
+HTTPS REQUESTS
+*/
+
 // ClassName::methodName associates this definition with its header declaration
 void OSMClient::requestDefault()
 {
@@ -51,15 +54,17 @@ void OSMClient::requestDefault()
 }
 
 // Request road data within a Bounding Box
-void OSMClient::requestRoadsBBox(const QGeoCoordinate& topLeft, const QGeoCoordinate& bottomRight)
+void OSMClient::requestRoadsBBox(const std::pair<QGeoCoordinate, QGeoCoordinate>& bbox)
 {
   // Validate coordinates before building a remote query
-  if (!GeoUtils::isValidBBox(topLeft, bottomRight))
+  if (!GeoUtils::isValidBBox(bbox))
   {
-    // emit notifies connected objects; return prevents sending invalid input
-    emit requestFailed(QString(), QStringLiteral("Invalid bounding box."));
+    qWarning() << "Cannot request road data for an invalid bounding box";
     return;
   }
+
+  const QGeoCoordinate& topLeft = bbox.first;
+  const QGeoCoordinate& bottomRight = bbox.second;
 
   // arg() replaces placeholders; fixed precision keeps cache keys consistent
   const QString query = QStringLiteral("[out:json][timeout:15];\n"
@@ -75,15 +80,10 @@ void OSMClient::requestRoadsBBox(const QGeoCoordinate& topLeft, const QGeoCoordi
 // General query handler
 void OSMClient::requestQuery(const QString& query)
 {
-  // Validate input and check the cache before contacting Overpass
-  if (query.trimmed().isEmpty())
-  {
-    emit requestFailed(query, QStringLiteral("Overpass query cannot be empty."));
-    return;
-  }
+  // Supersede any previous request before serving the cache or starting a new chain
+  cancelPendingRequests();
 
-  bool validCache = loadCache(query);
-  if (validCache)
+  if (loadCache(query))
     return;
 
   // Start with the first instance; each failure advances to the next asynchronously
@@ -94,8 +94,7 @@ void OSMClient::requestQuery(const QString& query)
 void OSMClient::sendQueryToEndpoint(const QString& query, std::size_t endpointIndex)
 {
   // Configure an asynchronous HTTPS POST so the UI stays responsive
-  qInfo().noquote() << "Sending HTTPS request to Overpass API:"
-                    << ENDPOINTS[endpointIndex].toString();
+  qInfo() << "Sending HTTPS request to Overpass API:" << ENDPOINTS[endpointIndex].toString();
   QNetworkRequest request(ENDPOINTS[endpointIndex]);
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     QStringLiteral("application/x-www-form-urlencoded"));
@@ -123,6 +122,10 @@ void OSMClient::cancelPendingRequests()
     reply->abort();
 }
 
+/*
+CACHE DATA
+*/
+
 // Compute file path
 QString OSMClient::cacheFilePath(const QString& query) const
 {
@@ -143,118 +146,74 @@ bool OSMClient::clearCache()
 {
   const QString appDataLocation = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
   if (appDataLocation.isEmpty())
-  {
-    qWarning() << "Could not locate application data directory to clear OSM cache";
     return false;
-  }
 
   QDir cacheDirectory(appDataLocation + QStringLiteral("/roads_data"));
-
-  if (!cacheDirectory.exists())
-    return true;
-
-  if (!cacheDirectory.removeRecursively())
-  {
-    qWarning() << "Could not clear OSM cache directory:" << cacheDirectory.path();
-    return false;
-  }
-  return true;
+  return !cacheDirectory.exists() || cacheDirectory.removeRecursively();
 }
 
 // Load saved cache
 bool OSMClient::loadCache(const QString& query)
 {
-  // Parse and validate cached JSON before treating the file as a cache hit
   const QString cachePath = cacheFilePath(query);
   QFile cacheFile(cachePath);
 
-  if (!cacheFile.exists())
-  {
-    qWarning().noquote() << "Could not find Overpass cache:" << cachePath;
-    return false;
-  }
-
   if (!cacheFile.open(QIODevice::ReadOnly))
   {
-    qWarning().noquote() << "Could not read Overpass cache:" << cachePath
-                         << cacheFile.errorString();
+    qWarning() << "Could not load cached roads data:" << cachePath
+               << (cacheFile.exists() ? cacheFile.errorString()
+                                      : QStringLiteral("File does not exist"));
     return false;
   }
 
   QJsonParseError parseError;
   const QJsonDocument cachedResponse = QJsonDocument::fromJson(cacheFile.readAll(), &parseError);
 
-  if (parseError.error != QJsonParseError::NoError || !isValidResponse(cachedResponse))
+  if (parseError.error != QJsonParseError::NoError)
   {
-    const QString error =
-        parseError.error != QJsonParseError::NoError
-            ? parseError.errorString()
-            : QStringLiteral("Cache does not contain an Overpass elements array.");
-
-    qWarning().noquote() << "Ignoring invalid Overpass cache:" << cachePath << error;
+    qWarning() << "Ignoring invalid cached roads data:" << cachePath << parseError.errorString();
     return false;
   }
 
-  qInfo().noquote() << "Using cached Overpass response:" << cachePath;
-  emit requestSucceeded(query, cachedResponse);
+  qInfo() << "Using cached roads data";
+
+  emit requestSucceeded(cachedResponse);
   return true;
 }
 
 // Save cache
 void OSMClient::saveCache(const QString& query, const QByteArray& responseBody)
 {
-  // QSaveFile replaces the cache on commit, avoiding partial files
   const QString cachePath = cacheFilePath(query);
-  if (cachePath.isEmpty())
-  {
-    qWarning() << "Could not determine cache file path.";
-    return;
-  }
-
-  // Create the cache folder on the first successful request
   const QString cacheDirectory = QFileInfo(cachePath).absolutePath();
-  if (!QDir().mkpath(cacheDirectory))
-  {
-    qWarning().noquote() << "Could not create cache directory:" << cacheDirectory;
-    return;
-  }
 
   QSaveFile cacheFile(cachePath);
 
-  if (!cacheFile.open(QIODevice::WriteOnly))
+  if (!cachePath.isEmpty() && QDir().mkpath(cacheDirectory) && cacheFile.open(QIODevice::WriteOnly))
   {
-    qWarning().noquote() << "Could not open Overpass cache for writing:" << cachePath
-                         << cacheFile.errorString();
-    return;
-  }
+    if (cacheFile.write(responseBody) == responseBody.size() && cacheFile.commit())
+    {
+      qInfo() << "Roads data cache saved";
+      return;
+    }
 
-  if (cacheFile.write(responseBody) != responseBody.size())
-  {
-    qWarning().noquote() << "Could not write Overpass cache:" << cachePath
-                         << cacheFile.errorString();
     cacheFile.cancelWriting();
-    return;
   }
 
-  if (!cacheFile.commit())
-  {
-    qWarning().noquote() << "Could not commit Overpass cache:" << cachePath
-                         << cacheFile.errorString();
-    return;
-  }
-
-  qInfo().noquote() << "Cached Overpass response:" << cachePath;
+  qWarning() << "Could not cache roads data:" << cachePath;
 }
 
 // Callback to the async HTTPS request
 void OSMClient::handleResponse(QNetworkReply* reply)
 {
-  // Ignore replies that are no longer part of the active request chain
-  if (m_activeReply != reply)
+  // Ignore replies canceled or superseded by a newer request
+  if (m_activeReply.data() != reply)
   {
     reply->deleteLater();
     return;
   }
+
+  // Clear the active reply before handling the result or advancing the retry chain
   m_activeReply.clear();
 
   // Retrieve this reply's query and endpoint for response handling
@@ -276,8 +235,7 @@ void OSMClient::handleResponse(QNetworkReply* reply)
       error = QStringLiteral("Response device closed before it could be read.");
 
     // Log the failed instance and release its reply
-    qWarning().noquote() << "Overpass endpoint failed:" << ENDPOINTS[endpointIndex].toString()
-                         << error;
+    qWarning() << "Overpass API endpoint failed:" << ENDPOINTS[endpointIndex].toString() << error;
     reply->deleteLater();
 
     // Cycle through all instances forever until one returns a valid response
@@ -299,8 +257,8 @@ void OSMClient::handleResponse(QNetworkReply* reply)
             : QStringLiteral("Response does not contain an Overpass elements array.");
 
     // Log the invalid response and try the next instance
-    qWarning().noquote() << "Overpass endpoint returned invalid data:"
-                         << ENDPOINTS[endpointIndex].toString() << detail;
+    qWarning() << "Overpass API endpoint returned invalid data:"
+               << ENDPOINTS[endpointIndex].toString() << detail;
     reply->deleteLater();
 
     // Cycle through all instances until one returns a valid response
@@ -312,5 +270,5 @@ void OSMClient::handleResponse(QNetworkReply* reply)
   saveCache(query, responseBody);
 
   reply->deleteLater();
-  emit requestSucceeded(query, response);
+  emit requestSucceeded(response);
 }

@@ -69,5 +69,5 @@ target_link_libraries(TrafficSim
 )
 
 if(BUILD_TESTING)
-    add_subdirectory(src/tests)
+    add_subdirectory(src/tests EXCLUDE_FROM_ALL)
 endif()

@@ -11,37 +11,27 @@ Simulation::Simulation(QObject* parent) : QObject(parent)
 }
 
 // Initialize the simulation
-bool Simulation::start(const QJsonDocument& response, QString& error)
+void Simulation::start(const QJsonDocument& response)
 {
   // Build a fresh road graph and leave the current simulation untouched on failure
-  if (!m_roadNetwork.buildRoadNetwork(response, error))
-    return false;
+  if (!m_roadNetwork.buildRoadNetwork(response))
+    return;
+
+  // Publish the loaded road network directly to observers such as the QML map
+  emit roadsReceived(m_roadNetwork.roadsPolyline());
+
+  // Set the simulation population from this request's bounding-box area
+  m_traffic.setTargetFromBBox(m_bbox, m_roadNetwork.ways().size());
 
   m_started = true;
   m_timer.start();
-
-  return true;
 }
 
 // Advance one simulation step and notify observers of its outcome
 void Simulation::update()
 {
-  QString error;
-
-  // Refuse to advance until a road network has been loaded successfully.
-  if (!m_started)
-  {
-    error = QStringLiteral("Simulation has not been started.");
-    emit updateFailed(error);
-    return;
-  }
-
-  // Delegate stochastic car arrivals to the traffic model
-  if (!m_traffic.spawnCars(m_roadNetwork, m_timeStep, error))
-  {
-    emit updateFailed(error);
-    return;
-  }
+  // Delegate car arrivals to the traffic model
+  m_traffic.createCars(m_roadNetwork, m_timeStep);
 
   // Reset the occupancy list
   m_roadNetwork.resetOccupancy();
@@ -79,7 +69,13 @@ void Simulation::clear()
   m_time = 0.0;
   m_started = false;
   m_timer.stop();
+
+  // Publish the cleared state
+  emit roadsReceived({});
+  emit carsUpdated({});
 }
+
+void Simulation::setBBox(const std::pair<QGeoCoordinate, QGeoCoordinate>& bbox) { m_bbox = bbox; }
 
 // Getter methods
 double Simulation::timeStep() const { return m_timeStep; }
