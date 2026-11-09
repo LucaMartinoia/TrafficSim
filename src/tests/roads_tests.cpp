@@ -204,10 +204,8 @@ private slots:
 
     Simulation simulation;
     QSignalSpy roadsReceivedSpy(&simulation, &Simulation::roadsReceived);
-    QSignalSpy carsUpdatedSpy(&simulation, &Simulation::carsUpdated);
     QSignalSpy updateFailedSpy(&simulation, &Simulation::updateFailed);
     QVERIFY(roadsReceivedSpy.isValid());
-    QVERIFY(carsUpdatedSpy.isValid());
     QVERIFY(updateFailedSpy.isValid());
 
     simulation.update();
@@ -235,25 +233,24 @@ private slots:
     QVERIFY2(simulation.traffic().addCar(simulation.roadNetwork(), error), qPrintable(error));
     simulation.update();
     QCOMPARE(simulation.time(), 0.05);
-    QCOMPARE(carsUpdatedSpy.count(), 1);
-    const QVariantList initialPositions = simulation.carPositions();
-    QVERIFY(!initialPositions.isEmpty());
+    QCOMPARE(simulation.carsModel()->rowCount(), 1);
+    const QModelIndex carIndex = simulation.carsModel()->index(0, 0);
+    const QGeoCoordinate initialPosition =
+        simulation.carsModel()->data(carIndex, CarsModel::PositionRole).value<QGeoCoordinate>();
 
     simulation.update();
     QCOMPARE(simulation.time(), 0.1);
-    QCOMPARE(carsUpdatedSpy.count(), 2);
-    const QVariantList movedPositions = simulation.carPositions();
-    QVERIFY(!movedPositions.isEmpty());
-    const QGeoCoordinate initialPosition = initialPositions.first().value<QGeoCoordinate>();
-    const QGeoCoordinate movedPosition = movedPositions.first().value<QGeoCoordinate>();
+    const QGeoCoordinate movedPosition = simulation.carsModel()
+                                             ->data(simulation.carsModel()->index(0, 0),
+                                                    CarsModel::PositionRole)
+                                             .value<QGeoCoordinate>();
     QVERIFY(initialPosition.distanceTo(movedPosition) > 0.0);
 
     // Clear the simulation and verify that it cannot advance without a network.
     simulation.clear();
     QCOMPARE(roadsReceivedSpy.count(), 2);
     QVERIFY(roadsReceivedSpy.constLast().at(0).toList().isEmpty());
-    QCOMPARE(carsUpdatedSpy.count(), 3);
-    QVERIFY(carsUpdatedSpy.constLast().at(0).toList().isEmpty());
+    QCOMPARE(simulation.carsModel()->rowCount(), 0);
     simulation.update();
     QCOMPARE(updateFailedSpy.count(), 2);
     QCOMPARE(simulation.time(), 0.0);

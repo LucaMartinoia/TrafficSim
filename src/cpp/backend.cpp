@@ -13,12 +13,13 @@ Backend::Backend(QObject* parent) : QObject(parent)
   connect(&m_OSMclient, &OSMClient::requestSucceeded, this, &Backend::handleOSMRequest);
   // Forward simulation state updates through the backend interface exposed to QML
   connect(&m_simulation, &Simulation::roadsReceived, this, &Backend::roadsReceived);
-  connect(&m_simulation, &Simulation::carsUpdated, this, &Backend::carsUpdated);
   // Forward timer-driven simulation status to the QML interface
   connect(&m_simulation, &Simulation::statusUpdated, this, &Backend::simulationStatus);
 
   loadSettings();
 }
+
+QAbstractItemModel* Backend::carsModel() { return m_simulation.carsModel(); }
 
 // Forward settings loading to the owned settings instance
 void Backend::loadSettings() { m_settings.loadSettings(); }

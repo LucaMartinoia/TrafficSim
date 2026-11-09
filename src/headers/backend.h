@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QAbstractItemModel>
 #include <QGeoCoordinate>
 #include <QJsonDocument>
 #include <QObject>
@@ -17,8 +18,11 @@ class Backend : public QObject
   Q_OBJECT
 
 public:
+  Q_PROPERTY(QAbstractItemModel* carsModel READ carsModel CONSTANT)
+
   // Constructor
   explicit Backend(QObject* parent = nullptr);
+  QAbstractItemModel* carsModel();
 
   // Q_INVOKABLE make a method callable from QML's JavaScript
   Q_INVOKABLE void requestBBoxData(const QGeoCoordinate& topLeft,
@@ -33,7 +37,6 @@ public:
 signals:
   // Signals are Qt main async mechanism to send callbacks between modules and GUI
   void roadsReceived(const QVariantList& paths);
-  void carsUpdated(const QVariantList& positions);
   void simulationStatus(int activeCarCount, double elapsedSeconds);
   void logMessage(QString severity, QString message);
 

@@ -19,8 +19,10 @@ void Traffic::addCar(const RoadNetwork& network)
   // Get the adjacency list
   const std::vector<RoadNode>& nodes = network.nodes();
   Car car;
+  car.id = m_maxID++;
 
   // Select distinct start and destination nodes uniformly at random
+  // TODO: improve node distribution, weighted towards certain nodes
   std::uniform_int_distribution<std::size_t> nodeDistribution(0, nodes.size() - 1);
   std::size_t start = nodeDistribution(m_randomEngine);
   std::size_t destination = nodeDistribution(m_randomEngine);
@@ -166,10 +168,7 @@ void Traffic::setTargetFromBBox(const std::pair<QGeoCoordinate, QGeoCoordinate>&
 
   const int target = std::max(2, static_cast<int>(estimatedCars));
 
-  /*
-    qInfo() << "Area:" << area << "Ways:" << waysCount << "Density factor:" << factor
-          << "Target cars:" << target;
-  */
+  qInfo() << "Expecting" << target << "cars";
 
   setTarget(target);
 }

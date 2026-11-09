@@ -7,8 +7,8 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
-#include <QVariantList>
 
+#include "cars_model.h"
 #include "roads.h"
 #include "traffic.h"
 
@@ -21,8 +21,7 @@ public:
   explicit Simulation(QObject* parent = nullptr);
   // Load and prepare a road network without starting a blocking simulation loop
   void start(const QJsonDocument& response);
-  // Return active car positions for the map overlay
-  QVariantList carPositions() const;
+  CarsModel* carsModel();
   // Reset the loaded network and simulation state
   void clear();
 
@@ -40,10 +39,10 @@ public slots:
 
 signals:
   void roadsReceived(const QVariantList& paths);
-  void carsUpdated(const QVariantList& positions);
   void statusUpdated(int activeCarCount, double elapsedSeconds);
 
 private:
+  CarsModel m_carsModel;
   RoadNetwork m_roadNetwork;
   Traffic m_traffic;
   QTimer m_timer;

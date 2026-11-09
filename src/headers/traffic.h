@@ -5,11 +5,13 @@
 #include <vector>
 
 #include <QGeoCoordinate>
+#include <QtGlobal>
 
 #include "roads.h"
 
 struct Car
 {
+  quint64 id = 0;
   RoadRoute route;
   std::size_t routeSegment = 0;
   double distance = 0.0;
@@ -45,6 +47,7 @@ private:
   double roadDensityFactor(int waysCount, double area);
 
   std::mt19937 m_randomEngine{std::random_device{}()};
+  quint64 m_maxID = 1;
   std::vector<Car> m_cars;
   int m_target = 1;
   double m_targetScale = 1.0;

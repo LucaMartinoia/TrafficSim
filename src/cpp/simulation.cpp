@@ -13,6 +13,8 @@ Simulation::Simulation(QObject* parent) : QObject(parent)
 // Initialize the simulation
 void Simulation::start(const QJsonDocument& response)
 {
+  qInfo() << "Starting simulation...";
+
   // Build a fresh road graph and leave the current simulation untouched on failure
   if (!m_roadNetwork.buildRoadNetwork(response))
     return;
@@ -25,6 +27,7 @@ void Simulation::start(const QJsonDocument& response)
 
   m_started = true;
   m_timer.start();
+
   emit statusUpdated(static_cast<int>(m_traffic.cars().size()), m_time);
 }
 
@@ -46,22 +49,16 @@ void Simulation::update()
   // Recalculate travel times using the updated edge occupancy
   m_roadNetwork.updateTravelTimes();
 
+  // Reconcile visible rows by car identity instead of replacing the full QML model
+  m_carsModel.synchronize(m_traffic.cars());
+
   // Integrate simulation time.
   m_time += m_timeStep;
 
-  emit carsUpdated(carPositions());
   emit statusUpdated(static_cast<int>(m_traffic.cars().size()), m_time);
 }
 
-// Convert the current active cars into coordinates consumable by QML
-QVariantList Simulation::carPositions() const
-{
-  QVariantList positions;
-  for (const Car& car : m_traffic.cars())
-    positions.append(QVariant::fromValue(car.position));
-
-  return positions;
-}
+CarsModel* Simulation::carsModel() { return &m_carsModel; }
 
 // Reset the simulation
 void Simulation::clear()
@@ -72,10 +69,12 @@ void Simulation::clear()
   m_stepCount = 0;
   m_started = false;
   m_timer.stop();
+  m_carsModel.clear();
+
+  qInfo() << "...stopping simulation\n";
 
   // Publish the cleared state
   emit roadsReceived({});
-  emit carsUpdated({});
   emit statusUpdated(0, 0.0);
 }
 

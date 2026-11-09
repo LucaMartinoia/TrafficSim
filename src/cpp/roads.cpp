@@ -414,7 +414,8 @@ void RoadNetwork::updateTravelTimes()
 
       // Delay scales linearly with cars
       if (cars > 1)
-        edge.travelTime *= 1.0 + static_cast<double>(cars - 1) / static_cast<double>(edge.lanes);
+        edge.travelTime *=
+            1.0 + static_cast<double>(cars - 1) / edge.length / static_cast<double>(edge.lanes);
     }
   }
 }
@@ -444,9 +445,9 @@ void RoadNetwork::setRoutingMetric(QString metric)
 {
   if (metric == QStringLiteral("Distance"))
     setRoutingMetric(RoutingMetric::Distance);
-  else if (metric == QStringLiteral("Travel time")) // TODO: fix
+  else if (metric == QStringLiteral("Minimum time"))
     setRoutingMetric(RoutingMetric::MinTime);
-  else if (metric == QStringLiteral("Adaptive time"))
+  else if (metric == QStringLiteral("Travel time"))
     setRoutingMetric(RoutingMetric::TravelTime);
   else
   {

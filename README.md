@@ -20,7 +20,7 @@ The project is intentionally focused on exploring how a desktop application can 
 2. **Request road data.** When you start a simulation, the interface sends the currently visible map bounds to the C++ backend. The road-data client checks its local cache and otherwise requests road geometry from the OpenStreetMap Overpass API. If an endpoint is unavailable, it tries another one.
 3. **Prepare the road network.** The backend validates the response and turns the road geometry into a directed network. Road direction and other available road properties are used to prepare routes and travel estimates. The road layout is sent to the map for display.
 4. **Run the simulation.** The simulation creates trips between reachable points in the network, moves cars along their routes, and tracks road usage. The selected routing preference and traffic target influence the simulation.
-5. **Update the map.** The backend sends car positions and road data to the QML interface, which updates the map and console. Stopping clears the current simulation and cancels any in-progress road request.
+5. **Update the map.** Road data is sent to the QML interface, while cars are exposed through a stable-ID Qt list model. Each 0.05-second simulation step updates positions in place, preserving delegates for active cars; new and arrived cars are inserted or removed as needed. Stopping clears the current simulation and cancels any in-progress road request.
 
 ## Main components
 

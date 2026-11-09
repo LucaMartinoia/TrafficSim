@@ -255,6 +255,7 @@ Item {
             id: cars
 
             parent: mapView.map
+            backend: root.backend
         }
 
         Roads {
@@ -270,10 +271,6 @@ Item {
 
         function onRoadsReceived(paths) {
             roads.paths = paths;
-        }
-
-        function onCarsUpdated(positions) {
-            cars.positions = positions;
         }
 
         function onSimulationStatus(activeCarCount, elapsedSeconds) {

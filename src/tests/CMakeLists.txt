@@ -1,13 +1,37 @@
 find_package(Qt6 REQUIRED COMPONENTS Test)
 
+qt_add_executable(CarsModelTests
+    cars_model_tests.cpp
+    ../cpp/cars_model.cpp
+    ../headers/cars_model.h
+)
+
+target_include_directories(CarsModelTests
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/headers
+)
+
+target_link_libraries(CarsModelTests
+    PRIVATE
+        Qt6::Positioning
+        Qt6::Test
+)
+
+add_test(
+    NAME cars_model_preserves_stable_rows
+    COMMAND CarsModelTests
+)
+
 qt_add_executable(TrafficSimTests
     roads_tests.cpp
     ../cpp/geo_utils.cpp
     ../cpp/OSMclient.cpp
+    ../cpp/cars_model.cpp
     ../cpp/roads.cpp
     ../cpp/simulation.cpp
     ../cpp/traffic.cpp
     ../headers/OSMclient.h
+    ../headers/cars_model.h
     ../headers/simulation.h
 )
 

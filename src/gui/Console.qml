@@ -32,6 +32,10 @@ Item {
                 wrapMode: TextArea.Wrap
                 placeholderText: "Console output will appear here"
 
+                Component.onCompleted: {
+                    logConsole.append("\t\t>>> Welcome to TrafficSim <<<\n");
+                }
+
                 Connections {
                     target: consolePanel.backend
 

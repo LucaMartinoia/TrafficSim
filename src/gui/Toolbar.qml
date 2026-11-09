@@ -82,7 +82,7 @@ ToolBar {
                 }
 
                 ComboBox {
-                    model: ["Distance", "Travel time", "Adaptive time"]
+                    model: ["Distance", "Minimum time", "Travel time"]
                     currentIndex: 0
                     Layout.preferredWidth: 200
 
@@ -109,9 +109,8 @@ ToolBar {
                     Layout.preferredWidth: 200
 
                     onMoved: {
-                        if (!toolbar.backend.setTargetScale(toolbar.targetScaleFromSlider(value))) {
-                            value = 0.5;
-                        }
+                        // Keep the backend target in sync with the slider value
+                        toolbar.backend.setTargetScale(toolbar.targetScaleFromSlider(value));
                     }
                 }
             }

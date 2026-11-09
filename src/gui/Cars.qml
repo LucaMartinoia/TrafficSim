@@ -4,23 +4,52 @@ import QtLocation
 MapItemView {
     id: cars
 
-    property var positions: []
+    required property var backend
 
-    model: positions
+    model: backend.carsModel
 
     delegate: MapQuickItem {
-        required property var modelData
+        id: carItem
 
-        coordinate: modelData
-        anchorPoint.x: sourceItem.width / 2
-        anchorPoint.y: sourceItem.height / 2
-        sourceItem: Rectangle {
-            width: 10
-            height: 10
-            radius: width / 2
-            color: "red"
-            border.color: "white"
-            border.width: 1
+        required property var position
+        required property real direction
+
+        coordinate: position
+        anchorPoint: Qt.point(6, 8)
+
+        sourceItem: Item {
+            width: 12
+            height: 16
+
+            Item {
+                id: rotatingItem
+
+                anchors.fill: parent
+                transformOrigin: Item.Center
+                rotation: carItem.direction
+
+                Canvas {
+                    anchors.fill: parent
+
+                    onPaint: {
+                        const ctx = getContext("2d");
+                        ctx.clearRect(0, 0, width, height);
+
+                        ctx.beginPath();
+                        ctx.moveTo(width / 2, 0);
+                        ctx.lineTo(width, height * 3 / 4);
+                        ctx.lineTo(0, height * 3 / 4);
+                        ctx.closePath();
+
+                        ctx.fillStyle = "red";
+                        ctx.fill();
+
+                        ctx.strokeStyle = "white";
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                    }
+                }
+            }
         }
     }
 }
